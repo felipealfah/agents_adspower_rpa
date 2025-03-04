@@ -53,32 +53,205 @@ class TermsHandler:
         self.retry_delay = 2
 
     def handle_terms_acceptance(self) -> bool:
-        """Processo principal de aceitação dos termos."""
+        """Processo principal de aceitação dos termos com lógica revisada."""
         try:
             logger.info("📄 Iniciando processo após verificação de telefone...")
-
-            # Nova sequência correta
-            acceptance_steps = [
-                (self._skip_recovery_email, TermsState.RECOVERY_SKIPPED),     # 1. Pular email de recuperação
-                (self._handle_review_page, TermsState.REVIEW_COMPLETED),      # 2. Confirmar telefone na tela de revisão
-                (self._accept_terms, TermsState.TERMS_PAGE),                  # 3. Aceitar os termos
-                (self._handle_confirmation_modal, TermsState.TERMS_ACCEPTED)  # 4. Confirmar no modal
-            ]
-
-            for step_func, new_state in acceptance_steps:
-                self.terms_info.state = new_state
-
-                if not self._execute_with_retry(step_func):
-                    self.terms_info.state = TermsState.FAILED
-                    return False
-
+            time.sleep(3)  # Aguardar carregamento completo da página
+            
+            # 1. Primeiro etapa: pular email de recuperação e tela de revisão
+            # Estas etapas são comuns a ambos os fluxos
+            if not self._skip_recovery_email():
+                logger.warning("⚠️ Possível problema ao pular email de recuperação, mas continuando...")
+            
+            if not self._handle_review_page():
+                logger.warning("⚠️ Possível problema na tela de revisão, mas continuando...")
+            
+            time.sleep(3)  # Aguardar carregamento
+            
+            # 2. Verificar se estamos na tela com checkboxes
+            if self._is_checkbox_terms_screen():
+                logger.info("✅ Detectada tela de termos com checkboxes")
+                
+                # Tentar marcar os checkboxes e clicar no botão
+                if self._handle_checkbox_terms():
+                    logger.info("✅ Termos com checkboxes tratados com sucesso!")
+                    self.terms_info.state = TermsState.COMPLETED
+                    return True
+                else:
+                    logger.error("❌ Falha ao tratar checkboxes, tentando fluxo alternativo...")
+            
+            # 3. Se não detectou checkboxes ou falhou na etapa anterior, tenta o fluxo normal
+            logger.info("📌 Tentando fluxo normal de aceitação dos termos...")
+            
+            # Tentar aceitar os termos normalmente
+            if not self._accept_terms():
+                logger.error("❌ Falha ao aceitar termos no fluxo normal")
+                self.terms_info.state = TermsState.FAILED
+                return False
+            
+            # Verificar e tratar o modal de confirmação
+            if not self._handle_confirmation_modal():
+                logger.error("❌ Falha no modal de confirmação")
+                self.terms_info.state = TermsState.FAILED
+                return False
+            
+            # Se chegou até aqui, consideramos um sucesso
+            logger.info("✅ Processo de aceitação de termos concluído com sucesso!")
             self.terms_info.state = TermsState.COMPLETED
             return True
 
         except Exception as e:
-            logger.error(f"Erro durante processo pós-verificação: {str(e)}")
+            logger.error(f"❌ Erro durante processo de aceitação de termos: {str(e)}")
             self.terms_info.state = TermsState.FAILED
-            raise TermsAcceptanceError(f"Falha no processo pós-verificação: {str(e)}")
+            raise TermsAcceptanceError(f"Falha no processo de aceitação de termos: {str(e)}")
+
+    def _is_checkbox_terms_screen(self) -> bool:
+        """Verifica se estamos na tela de termos com checkboxes."""
+        try:
+            # Procura por textos específicos que indicam a tela de checkboxes
+            checkbox_indicators = [
+                "//div[contains(text(), 'Concordo com')]",
+                "//div[contains(text(), 'I agree to')]",
+                "//div[contains(text(), 'Estoy de acuerdo con')]",
+                "//span[contains(text(), 'Concordo com')]"
+            ]
+            
+            # Verificar a presença de elementos de checkbox
+            checkbox_inputs = [
+                terms_locators.TERMS_CHECKBOX1,
+                terms_locators.TERMS_CHECKBOX2,
+                terms_locators.TERMS_CHECKBOX3
+            ]
+            
+            # Verificar indicadores de texto
+            for indicator in checkbox_indicators:
+                if self._element_exists(indicator, timeout=2):
+                    logger.info(f"✅ Indicador de texto para checkboxes encontrado: {indicator}")
+                    return True
+                    
+            # Verificar elementos de checkbox
+            for checkbox in checkbox_inputs:
+                if self._element_exists(checkbox, timeout=2):
+                    logger.info(f"✅ Elemento de checkbox encontrado: {checkbox}")
+                    return True
+                    
+            logger.info("📌 Não foram encontrados indicadores de tela de checkboxes")
+            return False
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao verificar tela de checkboxes: {str(e)}")
+            return False
+            
+    def _handle_checkbox_terms(self) -> bool:
+        """Manipula especificamente os checkboxes e botão da tela de termos."""
+        try:
+            logger.info("📌 Tentando marcar checkboxes e confirmar termos...")
+            
+            # Marcar cada checkbox, com foco nos elementos de label (mais clicáveis)
+            checkboxes_marked = True
+            
+            # Lista de possíveis elementos clicáveis relacionados aos checkboxes
+            checkbox_areas = [
+                # Primeiro, tentar elementos de label (geralmente mais fáceis de clicar)
+                "//div[contains(text(), 'Concordo com')]/preceding::label[1]",
+                "//div[contains(text(), 'Concordo com')]/ancestor::label",
+                "//span[contains(text(), 'Concordo com')]/preceding::label[1]",
+                "//span[contains(text(), 'Concordo com')]/ancestor::label",
+                # Depois, tentar elementos de checkbox específicos
+                terms_locators.TERMS_CHECKBOX1,
+                terms_locators.TERMS_CHECKBOX2,
+                terms_locators.TERMS_CHECKBOX3
+            ]
+            
+            # Tentar clicar em cada área
+            for area_xpath in checkbox_areas:
+                if self._element_exists(area_xpath, timeout=2):
+                    try:
+                        # Tentar obter o elemento
+                        element = self.driver.find_element(By.XPATH, area_xpath)
+                        
+                        # Scrollar até o elemento
+                        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+                        time.sleep(1)
+                        
+                        # Tentar clicar com diferentes métodos
+                        try:
+                            # Método 1: Clique direto
+                            element.click()
+                            logger.info(f"✅ Clique direto bem-sucedido em: {area_xpath}")
+                        except Exception as e1:
+                            logger.warning(f"⚠️ Clique direto falhou: {str(e1)}")
+                            try:
+                                # Método 2: Clique via JavaScript
+                                self.driver.execute_script("arguments[0].click();", element)
+                                logger.info(f"✅ Clique via JavaScript bem-sucedido em: {area_xpath}")
+                            except Exception as e2:
+                                logger.error(f"❌ Ambos os métodos de clique falharam para: {area_xpath}")
+                                checkboxes_marked = False
+                    except Exception as e:
+                        logger.error(f"❌ Erro ao interagir com elemento {area_xpath}: {str(e)}")
+                        checkboxes_marked = False
+            
+            # Se não conseguiu marcar todos os checkboxes, registrar erro
+            if not checkboxes_marked:
+                logger.warning("⚠️ Problemas ao marcar alguns checkboxes, mas continuando...")
+                
+            # Tentar clicar no botão de confirmação
+            button_clicked = False
+            confirm_button_xpaths = [
+                terms_locators.TERMS_CONFIRM_BUTTON,
+                "//button[contains(text(), 'Concordo')]",
+                "//button[contains(text(), 'I agree')]",
+                "//button[contains(text(), 'Aceitar')]",
+                "//button[contains(@class, 'VfPpkd-LgbsSe')]"
+            ]
+            
+            for button_xpath in confirm_button_xpaths:
+                if self._element_exists(button_xpath, timeout=2):
+                    try:
+                        button = self.driver.find_element(By.XPATH, button_xpath)
+                        
+                        # Scrollar até o botão
+                        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", button)
+                        time.sleep(1)
+                        
+                        # Tentar clicar
+                        try:
+                            button.click()
+                            logger.info(f"✅ Clique direto no botão: {button_xpath}")
+                            button_clicked = True
+                            break
+                        except Exception as e1:
+                            logger.warning(f"⚠️ Clique direto no botão falhou: {str(e1)}")
+                            try:
+                                self.driver.execute_script("arguments[0].click();", button)
+                                logger.info(f"✅ Clique via JavaScript no botão: {button_xpath}")
+                                button_clicked = True
+                                break
+                            except Exception as e2:
+                                logger.error(f"❌ Ambos os métodos de clique falharam para o botão: {button_xpath}")
+                    except Exception as e:
+                        logger.error(f"❌ Erro ao interagir com botão {button_xpath}: {str(e)}")
+            
+            if not button_clicked:
+                logger.error("❌ Não foi possível clicar no botão de confirmação")
+                return False
+                
+            # Aguardar para ver se avançamos
+            time.sleep(5)
+            
+            # Verificar se ainda estamos na mesma tela
+            for area_xpath in checkbox_areas[:4]:  # Usar apenas os primeiros indicadores de texto
+                if self._element_exists(area_xpath, timeout=2):
+                    logger.error("❌ Ainda estamos na tela de checkboxes. O processo não avançou.")
+                    return False
+                    
+            logger.info("✅ Avançamos da tela de checkboxes com sucesso!")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao manipular checkboxes: {str(e)}")
+            return False
 
     def _element_exists(self, xpath, timeout=3):
         """Verifica se um elemento existe na página."""
@@ -103,7 +276,7 @@ class TermsHandler:
                     continue
                 return False
 
-    def _accept_terms(self):
+    def _accept_terms(self) -> bool:
         """Aceita os termos de uso com suporte a múltiplos formatos de tela."""
         try:
             logger.info("📌 Localizando botão 'Aceitar' nos termos de uso...")
@@ -127,27 +300,31 @@ class TermsHandler:
             # Tenta cada XPath até encontrar um que funcione
             for xpath in accept_button_xpaths:
                 try:
-                    agree_button = self.driver.find_element(By.XPATH, xpath)
-                    if agree_button.is_displayed() and agree_button.is_enabled():
-                        logger.info(f"✅ Botão 'Aceitar' encontrado com XPath: {xpath}")
-                        
-                        # Tenta clicar com JavaScript para maior confiabilidade
-                        self.driver.execute_script("arguments[0].click();", agree_button)
-                        time.sleep(2)
-                        
-                        logger.info("✅ Termos aceitos com sucesso.")
-                        self.terms_info.terms_accepted = True
-                        return
-                except Exception:
+                    if self._element_exists(xpath, timeout=2):
+                        agree_button = self.driver.find_element(By.XPATH, xpath)
+                        if agree_button.is_displayed() and agree_button.is_enabled():
+                            logger.info(f"✅ Botão 'Aceitar' encontrado com XPath: {xpath}")
+                            
+                            # Tenta clicar com JavaScript para maior confiabilidade
+                            self.driver.execute_script("arguments[0].click();", agree_button)
+                            time.sleep(2)
+                            
+                            logger.info("✅ Termos aceitos com sucesso.")
+                            self.terms_info.terms_accepted = True
+                            return True
+                except Exception as e:
+                    logger.warning(f"⚠️ Erro ao tentar clicar em {xpath}: {str(e)}")
                     continue
                     
             # Se chegou aqui, nenhum botão foi encontrado
-            raise TermsAcceptanceError("Botão de aceite dos termos não encontrado.")
+            logger.error("❌ Botão de aceite dos termos não encontrado.")
+            return False
             
         except Exception as e:
-            raise ElementInteractionError("botão de aceite dos termos", "clicar", str(e))
+            logger.error(f"❌ Erro ao aceitar termos: {str(e)}")
+            return False
 
-    def _handle_confirmation_modal(self):
+    def _handle_confirmation_modal(self) -> bool:
         """Verifica se há um modal de confirmação e lida com ele."""
         try:
             logger.info("📌 Verificando se há um modal de confirmação...")
@@ -182,7 +359,7 @@ class TermsHandler:
                         logger.info(f"✅ Modal de confirmação fechado usando XPath: {xpath}")
                         self.terms_info.confirmation_handled = True
                         time.sleep(2)  # Espera para processamento
-                        return
+                        return True
                 except Exception as e:
                     logger.warning(f"⚠️ Tentativa de clicar no botão de confirmação falhou: {str(e)}")
                     continue
@@ -192,16 +369,19 @@ class TermsHandler:
             if "myaccount.google.com" in self.driver.current_url:
                 logger.info("✅ Já avançamos para a conta Google. Modal não está mais visível.")
                 self.terms_info.confirmation_handled = True
-                return
+                return True
 
             logger.info("✅ Nenhum modal de confirmação encontrado, continuando...")
             self.terms_info.confirmation_handled = True
+            return True
 
         except TimeoutException:
             logger.info("✅ Nenhum modal de confirmação encontrado, continuando...")
             self.terms_info.confirmation_handled = True
+            return True
         except Exception as e:
-            raise ElementInteractionError("modal de confirmação", "clicar", str(e))
+            logger.error(f"❌ Erro ao verificar modal de confirmação: {str(e)}")
+            return False
 
     def _skip_recovery_email(self) -> bool:
         """Pula a tela de recuperação de email."""
@@ -222,7 +402,7 @@ class TermsHandler:
             logger.error(f"❌ Erro ao tentar pular email de recuperação: {str(e)}")
             return False
 
-    def _handle_review_page(self):
+    def _handle_review_page(self) -> bool:
         """Confirma o número de telefone na tela de revisão."""
         try:
             logger.info("📌 Verificando tela de confirmação de telefone...")
@@ -237,6 +417,7 @@ class TermsHandler:
             ]
             
             # Tenta cada XPath
+            button_clicked = False
             for xpath in next_button_xpaths:
                 try:
                     if self._element_exists(xpath, timeout=3):
@@ -246,13 +427,18 @@ class TermsHandler:
                             self.driver.execute_script("arguments[0].click();", next_button)
                             time.sleep(2)
                             logger.info(f"✅ Clicou no botão de confirmação de telefone: {xpath}")
-                            self.terms_info.review_completed = True
-                            return
-                except:
+                            button_clicked = True
+                            break
+                except Exception as e:
+                    logger.warning(f"⚠️ Erro ao clicar em botão {xpath}: {str(e)}")
                     continue
 
-            logger.warning("⚠️ Nenhum botão de confirmação de telefone encontrado, continuando...")
+            if not button_clicked:
+                logger.warning("⚠️ Nenhum botão de confirmação de telefone clicado, mas continuando...")
+                
             self.terms_info.review_completed = True
+            return True
 
         except Exception as e:
-            raise ElementInteractionError("botão de confirmação de telefone", "clicar", str(e))
+            logger.error(f"❌ Erro na tela de revisão: {str(e)}")
+            return False

@@ -260,8 +260,67 @@ class AccountSetup:
             self.driver.find_element(By.ID, account_locators.MONTH).send_keys(self.account_info.birth_month)
             self.driver.find_element(By.ID, account_locators.DAY).send_keys(str(self.account_info.birth_day))
             self.driver.find_element(By.ID, account_locators.YEAR).send_keys(str(self.account_info.birth_year))
-            self.driver.find_element(By.ID, account_locators.GENDER).send_keys(account_config.GENDER_DEFAULT)
+            
+            # Trecho de seleção de gênero usando XPath exato
 
+            try:
+                # Selecionar o dropdown de gênero
+                gender_dropdown = self.driver.find_element(By.ID, account_locators.GENDER)
+                gender_dropdown.click()
+                time.sleep(1)  # Pequena pausa para garantir que o dropdown está aberto
+                
+                try:
+                    # Tentar encontrar e clicar na opção usando o XPath definido no locators.py
+                    rather_not_say_option = self.driver.find_element(By.XPATH, account_locators.GENDER_NEUTRAL_OPTION)
+                    logger.info(f"✅ Opção 'Prefiro não dizer' encontrada: {rather_not_say_option.text}")
+                    
+                    # Usar JavaScript para garantir a seleção
+                    self.driver.execute_script("arguments[0].selected = true;", rather_not_say_option)
+                    self.driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", gender_dropdown)
+                    logger.info("✅ Opção 'Prefiro não dizer' selecionada com sucesso via XPath exato")
+                except Exception as xpath_error:
+                    logger.warning(f"⚠️ Não foi possível selecionar usando XPath exato: {str(xpath_error)}")
+                    
+                    # Tentar usar Select como fallback
+                    try:
+                        from selenium.webdriver.support.ui import Select
+                        select = Select(gender_dropdown)
+                        
+                        # Obter todas as opções e logging
+                        options = select.options
+                        logger.info(f"Opções disponíveis: {[opt.text for opt in options]}")
+                        
+                        # Tentar encontrar "Prefiro não dizer" (ou equivalente) nas opções
+                        for i, option in enumerate(options):
+                            option_text = option.text.strip().lower()
+                            if ("prefiro não dizer" in option_text or 
+                                "prefiro não informar" in option_text or 
+                                "rather not say" in option_text or 
+                                "prefer not to say" in option_text):
+                                # Selecionar por índice
+                                select.select_by_index(i)
+                                logger.info(f"✅ Opção selecionada via texto: {option.text}")
+                                break
+                        else:
+                            # Se não encontrou por texto, tentar última opção (geralmente é a correta)
+                            # Mas apenas se não for "Personalizar"
+                            last_option = options[-1].text.lower()
+                            if not ("personalizar" in last_option or "custom" in last_option):
+                                select.select_by_index(len(options) - 1)
+                                logger.info(f"✅ Selecionada última opção: {options[-1].text}")
+                            else:
+                                # Tentar encontrar a opção correta por exclusão
+                                for i, option in enumerate(options):
+                                    if ("personalizar" not in option.text.lower() and 
+                                        "custom" not in option.text.lower()):
+                                        select.select_by_index(i)
+                                        logger.info(f"✅ Opção selecionada por exclusão: {option.text}")
+                                        break
+                    except Exception as select_error:
+                        logger.error(f"❌ Erro ao usar Select como fallback: {str(select_error)}")
+
+            except Exception as e:
+                logger.error(f"❌ Erro ao selecionar gênero: {str(e)}")
             self._click_next()
             time.sleep(2)
 
@@ -450,7 +509,25 @@ class AccountSetup:
             element = self.wait.until(
                 EC.element_to_be_clickable((by, locator))
             )
-            element.click()
+            try:
+                element.click()
+            except Exception:
+                # Adicionar scroll para garantir visibilidade
+                self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+                time.sleep(1)
+                
+                # Tentar JavaScript como fallback
+                try:
+                    self.driver.execute_script("arguments[0].click();", element)
+                    logger.info(f"✅ Clicou em {element_name} via JavaScript")
+                except Exception as js_error:
+                    logger.error(f"❌ Falha ao clicar via JavaScript: {str(js_error)}")
+                    
+                    # Última tentativa usando Actions
+                    from selenium.webdriver.common.action_chains import ActionChains
+                    actions = ActionChains(self.driver)
+                    actions.move_to_element(element).click().perform()
+                    logger.info(f"✅ Clicou em {element_name} via ActionChains")
         except Exception as e:
             raise ElementInteractionError(element_name, "clicar", str(e))
 

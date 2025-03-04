@@ -1,6 +1,33 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List
 import logging
+from functools import partial
+
+# Função que retorna o dicionário de opções de gênero
+def get_gender_options():
+    return {
+        "neutral": [
+            "Rather not say",       # Inglês
+            "Prefiro não informar", # Português
+            "Prefiero no decirlo",  # Espanhol
+            "Je préfère ne pas le dire", # Francês
+            "Lieber nicht sagen"    # Alemão
+        ],
+        "male": [
+            "Male",      # Inglês
+            "Masculino", # Português
+            "Hombre",    # Espanhol
+            "Homme",     # Francês
+            "Männlich"   # Alemão
+        ],
+        "female": [
+            "Female",    # Inglês
+            "Feminino",  # Português
+            "Mujer",     # Espanhol
+            "Femme",     # Francês
+            "Weiblich"   # Alemão
+        ]
+    }
 
 @dataclass
 class TimeoutConfig:
@@ -25,7 +52,12 @@ class AccountConfig:
     MAX_USERNAME_ATTEMPTS: int = 5
     GMAIL_SIGNUP_URL: str = "https://accounts.google.com/signup/v2/webcreateaccount"
     GMAIL_URL: str = "https://mail.google.com"
-    GENDER_DEFAULT: str = "Rather not say"
+    
+    # Opções de gênero multilíngues usando default_factory
+    GENDER_OPTIONS: Dict[str, List[str]] = field(default_factory=get_gender_options)
+    
+    # Valor padrão: usar a opção neutra
+    GENDER_DEFAULT: str = "neutral"
 
 @dataclass
 class LogConfig:
