@@ -13,6 +13,7 @@ from .config import timeouts, account_config, sms_config, log_config
 
 logger = logging.getLogger(__name__)
 
+
 class GmailCreationState(Enum):
     """Estados possíveis durante a criação da conta."""
     INITIAL = "initial"
@@ -23,6 +24,7 @@ class GmailCreationState(Enum):
     COMPLETED = "completed"
     FAILED = "failed"
 
+
 class GmailCreator:
     """Classe principal que gerencia o fluxo de criação da conta Gmail."""
 
@@ -32,8 +34,9 @@ class GmailCreator:
         self.sms_api = sms_api
         self.wait = WebDriverWait(driver, timeouts.DEFAULT_WAIT)
         self.phone_number = None  # Inicialmente como None para evitar valores errados
-        self.profile_name = profile_name if profile_name else "default_profile"  # Garantir que nunca seja None ou vazio
-        
+        # Garantir que nunca seja None ou vazio
+        self.profile_name = profile_name if profile_name else "default_profile"
+
         # Configuração geral
         self.config = {
             "timeouts": timeouts,
@@ -47,7 +50,7 @@ class GmailCreator:
     def create_account(self, phone_params=None):
         """
         Executa todo o fluxo de criação da conta Gmail.
-        
+
         Args:
             phone_params (dict, optional): Parâmetros para reutilização de números
                 Formato esperado: {
@@ -56,7 +59,7 @@ class GmailCreator:
                     'activation_id': 'activation123',
                     'country_code': '1'
                 }
-        
+
         Returns:
             tuple: (sucesso, dados_da_conta)
         """
@@ -67,7 +70,8 @@ class GmailCreator:
             self.state = GmailCreationState.ACCOUNT_SETUP
             account_setup = AccountSetup(self.driver, self.credentials)
             if not account_setup.start_setup():
-                raise GmailCreationError("❌ Falha na configuração inicial da conta.")
+                raise GmailCreationError(
+                    "❌ Falha na configuração inicial da conta.")
 
             # Passo 2: Verificação de telefone
             self.state = GmailCreationState.PHONE_VERIFICATION
@@ -75,22 +79,34 @@ class GmailCreator:
 
             # Se temos parâmetros de telefone para reutilização
             if phone_params and isinstance(phone_params, dict) and phone_params.get('reuse_number'):
-                logger.info(f"♻️ Configurando reutilização de número: {phone_params.get('phone_number')}")
+                logger.info(
+                    f"♻️ Configurando reutilização de número: {phone_params.get('phone_number')}")
                 phone_verify.reuse_number = True
-                phone_verify.predefined_number = phone_params.get('phone_number')
-                phone_verify.predefined_activation_id = phone_params.get('activation_id')
-                phone_verify.predefined_country_code = phone_params.get('country_code')
+                phone_verify.predefined_number = phone_params.get(
+                    'phone_number')
+                phone_verify.predefined_activation_id = phone_params.get(
+                    'activation_id')
+                phone_verify.predefined_country_code = phone_params.get(
+                    'country_code')
 
+            # Esta chamada inclui todo o processo de verificação por SMS
+            # O método só retorna True se a verificação for bem-sucedida
             if not phone_verify.handle_verification():
                 raise GmailCreationError("❌ Falha na verificação de telefone.")
 
-            # 🔹 Captura e armazena o número de telefone corretamente
-            if phone_verify.current_activation and phone_verify.current_activation.phone_number:
-                self.phone_number = phone_verify.current_activation.phone_number
-                logger.info(f"✅ Número de telefone capturado: {self.phone_number}")
+            # 🔹 Só chegamos aqui se a verificação do SMS foi bem-sucedida
+            # Agora podemos capturar com segurança os dados do telefone verificado
+            phone_data = phone_verify.get_current_phone_data()
+            if phone_data:
+                phone_number = phone_data.get('phone_number')
+                country_code = phone_data.get('country_code')
+                activation_id = phone_data.get('activation_id')
+                country_name = phone_data.get('country_name')
             else:
-                logger.warning("⚠️ Nenhum número de telefone foi capturado!")
-                self.phone_number = "unknown"  # Define um valor padrão caso o número não seja obtido
+                logger.error(
+                    "❌ Falha ao obter dados do telefone após verificação")
+                raise GmailCreationError(
+                    "Dados do telefone não disponíveis após verificação")
 
             # Passo 3: Aceitação dos Termos
             self.state = GmailCreationState.TERMS_ACCEPTANCE
@@ -103,37 +119,38 @@ class GmailCreator:
             account_verify = AccountVerify(
                 self.driver,
                 self.credentials,
-                profile_name=self.profile_name,  # Nome do perfil do AdsPower
-                phone_number=self.phone_number   # Número salvo anteriormente
+                profile_name=self.profile_name,
+                phone_number=phone_number
             )
 
             if not account_verify.verify_account():
-                raise GmailCreationError("❌ Falha na verificação final da conta.")
+                raise GmailCreationError(
+                    "❌ Falha na verificação final da conta.")
 
             # Se tudo deu certo:
             self.state = GmailCreationState.COMPLETED
 
-            # 🔹 Retornar os dados corretos sem duplicação
+            # 🔹 Retornar os dados completos da conta
             account_data = {
+                "first_name": self.credentials["first_name"],
+                "last_name": self.credentials["last_name"],
                 "email": self.credentials["username"] + "@gmail.com",
                 "password": self.credentials["password"],
-                "phone": self.phone_number,
+                "phone": phone_number,
+                "country_code": country_code,
+                "country_name": country_name,
+                "activation_id": activation_id,
                 "profile": self.profile_name
             }
-            
-            # Adicionar o ID de ativação se disponível (útil para reutilização)
-            if hasattr(phone_verify, 'current_activation') and phone_verify.current_activation:
-                account_data["activation_id"] = phone_verify.current_activation.activation_id
-                if hasattr(phone_verify.current_activation, 'country_code'):
-                    account_data["country_code"] = phone_verify.current_activation.country_code
 
-            logger.info(f"✅ Conta criada com sucesso! Retornando os dados: {account_data}")
-            return True, account_data  # Retorna SUCESSO corretamente
+            logger.info(
+                f"✅ Conta criada com sucesso! Retornando os dados: {account_data}")
+            return True, account_data
 
         except GmailCreationError as e:
             logger.error(f"🚨 Erro durante o processo: {str(e)}")
-            return False, None  # Retorna erro APENAS se uma exceção for levantada
+            return False, None
 
         except Exception as e:
             logger.error(f"❌ Erro inesperado: {str(e)}")
-            return False, None  # Retorna erro para exceções desconhecidas
+            return False, None

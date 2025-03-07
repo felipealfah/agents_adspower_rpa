@@ -10,16 +10,17 @@ from selenium.webdriver.chrome.options import Options
 
 logger = logging.getLogger(__name__)
 
+
 class AdsPowerManager:
     """
     Gerencia a integração com AdsPower, incluindo verificações de saúde
     e gerenciamento de múltiplos navegadores.
     """
-    
+
     def __init__(self, base_url, api_key, local_cache_path="credentials/adspower_cache.json"):
         """
         Inicializa o gerenciador AdsPower.
-        
+
         Args:
             base_url: URL base da API do AdsPower
             api_key: Chave da API do AdsPower
@@ -33,7 +34,7 @@ class AdsPowerManager:
         self.local_cache_path = local_cache_path
         self.active_browsers = {}
         self.cache = self._load_cache()
-        
+
     def _load_cache(self) -> Dict:
         """Carrega o cache local de informações do AdsPower."""
         try:
@@ -58,7 +59,7 @@ class AdsPowerManager:
                     "last_checked": 0
                 }
             }
-    
+
     def _save_cache(self):
         """Salva o cache local."""
         try:
@@ -67,29 +68,29 @@ class AdsPowerManager:
                 json.dump(self.cache, f, indent=4)
         except Exception as e:
             logger.warning(f"⚠️ Erro ao salvar cache do AdsPower: {str(e)}")
-    
+
     def check_api_health(self, force_check=False) -> bool:
         """
         Verifica se a API do AdsPower está respondendo corretamente.
-        
+
         Args:
             force_check: Se True, força uma nova verificação mesmo que tenha verificado recentemente
-            
+
         Returns:
             bool: True se a API está saudável, False caso contrário
         """
         current_time = time.time()
         cache_time = 5 * 60  # 5 minutos
-        
+
         # Usar cache se foi verificado recentemente
         if not force_check and (current_time - self.cache["service_status"]["last_checked"]) < cache_time:
             return self.cache["service_status"]["available"]
-        
+
         try:
             # Realizar verificação simples - listar grupos
             url = f"{self.base_url}/api/v1/group/list"
             response = requests.get(url, headers=self.headers, timeout=10)
-            
+
             if response.status_code == 200:
                 data = response.json()
                 if data.get("code") == 0:
@@ -99,53 +100,56 @@ class AdsPowerManager:
                     self._save_cache()
                     logger.info("✅ API do AdsPower está saudável")
                     return True
-            
+
             # API não está saudável
             self.cache["service_status"]["available"] = False
             self.cache["service_status"]["last_checked"] = current_time
             self._save_cache()
-            logger.warning(f"⚠️ API do AdsPower não está respondendo corretamente: {response.status_code}")
+            logger.warning(
+                f"⚠️ API do AdsPower não está respondendo corretamente: {response.status_code}")
             return False
-            
+
         except Exception as e:
             # Erro na verificação
             self.cache["service_status"]["available"] = False
             self.cache["service_status"]["last_checked"] = current_time
             self._save_cache()
-            logger.error(f"❌ Erro ao verificar saúde da API do AdsPower: {str(e)}")
+            logger.error(
+                f"❌ Erro ao verificar saúde da API do AdsPower: {str(e)}")
             return False
-    
+
     def get_all_profiles(self, force_refresh=False) -> List[Dict]:
         """
         Obtém todos os perfis disponíveis no AdsPower.
-        
+
         Args:
             force_refresh: Se True, força uma atualização do cache
-            
+
         Returns:
             List[Dict]: Lista de perfis
         """
         current_time = time.time()
         cache_time = 15 * 60  # 15 minutos
-        
+
         # Verificar se a API está disponível
         if not self.check_api_health():
             # Se não estiver disponível, usar cache mesmo que antigo
             if self.cache["profiles"]:
-                logger.warning("⚠️ Usando cache de perfis pois API não está disponível")
+                logger.warning(
+                    "⚠️ Usando cache de perfis pois API não está disponível")
                 return list(self.cache["profiles"].values())
             else:
                 logger.error("❌ API não disponível e não há cache de perfis")
                 return []
-                
+
         # Usar cache se não precisa atualizar
         if not force_refresh and (current_time - self.cache["last_updated"]) < cache_time:
             return list(self.cache["profiles"].values())
-            
+
         all_profiles = []
         page = 1
         page_size = 100  # Aumentar para pegar mais perfis de uma vez
-        
+
         while True:
             try:
                 response = requests.get(
@@ -156,46 +160,46 @@ class AdsPowerManager:
                 )
                 response.raise_for_status()
                 data = response.json()
-                
+
                 if "data" in data and "list" in data["data"]:
                     profiles = data["data"]["list"]
                     all_profiles.extend(profiles)
-                    
+
                     # Atualizar cache com perfis
                     for profile in profiles:
                         self.cache["profiles"][profile["user_id"]] = profile
-                    
+
                     # Verificar se há mais páginas
                     if len(profiles) < page_size:
                         break  # Última página
                     page += 1
                 else:
                     break
-                    
+
             except Exception as e:
                 logger.error(f"❌ Erro ao buscar perfis: {str(e)}")
                 break
-        
+
         # Atualizar timestamp do cache
         self.cache["last_updated"] = current_time
         self._save_cache()
-        
+
         return all_profiles
-        
+
     def get_profile_info(self, user_id: str) -> Optional[Dict]:
         """
         Obtém informações de um perfil específico.
-        
+
         Args:
             user_id: ID do perfil
-            
+
         Returns:
             Dict: Informações do perfil ou None se não encontrado
         """
         # Tentar usar cache primeiro
         if user_id in self.cache["profiles"]:
             return self.cache["profiles"][user_id]
-            
+
         # Se não estiver no cache, buscar da API
         try:
             response = requests.get(
@@ -204,7 +208,7 @@ class AdsPowerManager:
                 params={"user_id": user_id},
                 timeout=10
             )
-            
+
             if response.status_code == 200:
                 data = response.json()
                 if data.get("code") == 0 and "data" in data:
@@ -212,28 +216,29 @@ class AdsPowerManager:
                     self.cache["profiles"][user_id] = data["data"]
                     self._save_cache()
                     return data["data"]
-            
+
             logger.warning(f"⚠️ Perfil {user_id} não encontrado na API")
             return None
-            
+
         except Exception as e:
-            logger.error(f"❌ Erro ao buscar informações do perfil {user_id}: {str(e)}")
+            logger.error(
+                f"❌ Erro ao buscar informações do perfil {user_id}: {str(e)}")
             return None
-    
+
     def is_browser_running(self, user_id: str) -> bool:
         """
         Verifica se um navegador para o perfil está em execução.
-        
+
         Args:
             user_id: ID do perfil
-            
+
         Returns:
             bool: True se o navegador está em execução, False caso contrário
         """
         # Verificar cache local primeiro
         if user_id in self.active_browsers:
             return True
-            
+
         # Verificar na API do AdsPower
         try:
             response = requests.get(
@@ -242,108 +247,117 @@ class AdsPowerManager:
                 params={"user_id": user_id},
                 timeout=10
             )
-            
+
             if response.status_code == 200:
                 data = response.json()
                 return data.get("data", {}).get("status") == "Active"
-            
+
             return False
-            
+
         except Exception as e:
-            logger.error(f"❌ Erro ao verificar status do navegador para {user_id}: {str(e)}")
+            logger.error(
+                f"❌ Erro ao verificar status do navegador para {user_id}: {str(e)}")
             return False
-    
+
     def start_browser(self, user_id: str, max_wait_time: int = 30) -> Tuple[bool, Optional[Dict]]:
         """
         Inicia o navegador para um perfil e aguarda até estar pronto.
-        
+
         Args:
             user_id: ID do perfil
             max_wait_time: Tempo máximo de espera em segundos
-            
+
         Returns:
             Tuple[bool, Optional[Dict]]: (Sucesso, Informações do navegador)
         """
         # Verificar se já está em execução
         if self.is_browser_running(user_id):
-            logger.info(f"✅ Navegador para perfil {user_id} já está em execução")
+            logger.info(
+                f"✅ Navegador para perfil {user_id} já está em execução")
             browser_info = self.get_browser_info(user_id)
             return True, browser_info
-        
+
         # Iniciar navegador
         try:
             url_start = f"{self.base_url}/api/v1/browser/start?user_id={user_id}"
-            response = requests.get(url_start, headers=self.headers, timeout=15)
-            
+            response = requests.get(
+                url_start, headers=self.headers, timeout=15)
+
             if response.status_code != 200:
-                logger.error(f"❌ Erro ao iniciar navegador: HTTP {response.status_code}")
+                logger.error(
+                    f"❌ Erro ao iniciar navegador: HTTP {response.status_code}")
                 return False, None
-                
+
             data = response.json()
             if data.get("code") != 0:
                 logger.error(f"❌ Erro ao iniciar navegador: {data.get('msg')}")
                 return False, None
-                
+
             logger.info(f"🚀 Iniciando navegador para perfil {user_id}")
-            
+
             # Aguardar até o navegador estar pronto
             start_time = time.time()
             while (time.time() - start_time) < max_wait_time:
                 time.sleep(2)  # Intervalo entre verificações
-                
+
                 browser_info = self.get_browser_info(user_id)
                 if browser_info and browser_info.get("selenium_ws"):
                     # Navegador está pronto
                     self.active_browsers[user_id] = browser_info
                     logger.info(f"✅ Navegador pronto para perfil {user_id}")
                     return True, browser_info
-            
+
             # Timeout - navegador não ficou pronto no tempo esperado
-            logger.error(f"⏰ Timeout ao aguardar navegador para perfil {user_id}")
+            logger.error(
+                f"⏰ Timeout ao aguardar navegador para perfil {user_id}")
             return False, None
-            
+
         except Exception as e:
-            logger.error(f"❌ Erro ao iniciar navegador para perfil {user_id}: {str(e)}")
+            logger.error(
+                f"❌ Erro ao iniciar navegador para perfil {user_id}: {str(e)}")
             return False, None
-    
+
     def stop_browser(self, user_id: str) -> bool:
         """
         Para o navegador de um perfil.
-        
+
         Args:
             user_id: ID do perfil
-            
+
         Returns:
             bool: True se o navegador foi parado com sucesso, False caso contrário
         """
         try:
             url_stop = f"{self.base_url}/api/v1/browser/stop?user_id={user_id}"
             response = requests.get(url_stop, headers=self.headers, timeout=10)
-            
+
             if response.status_code == 200:
                 data = response.json()
                 if data.get("code") == 0:
                     # Remover do cache de navegadores ativos
                     if user_id in self.active_browsers:
                         del self.active_browsers[user_id]
-                    
-                    logger.info(f"✅ Navegador para perfil {user_id} parado com sucesso")
+
+                    logger.info(
+                        f"✅ Navegador para perfil {user_id} parado com sucesso")
                     return True
-            
-            logger.warning(f"⚠️ Falha ao parar navegador para perfil {user_id}")
+
+            logger.warning(
+                f"⚠️ Falha ao parar navegador para perfil {user_id}")
             return False
-            
+
         except Exception as e:
-            logger.error(f"❌ Erro ao parar navegador para perfil {user_id}: {str(e)}")
+            logger.error(
+                f"❌ Erro ao parar navegador para perfil {user_id}: {str(e)}")
             return False
-    
+
     def get_browser_info(self, user_id: str) -> Optional[Dict]:
         """
         Obtém informações do navegador ativo para um perfil.
-        
+
         Args:
             user_id: ID do perfil
-            
+
         Returns:
             Optional[Dict]: Informações do navegador ou None se não encontrado
         """
@@ -353,14 +367,14 @@ class AdsPowerManager:
                 headers=self.headers,
                 timeout=10
             )
-            
+
             if response.status_code != 200:
                 return None
-                
+
             data = response.json()
             if data.get("code") != 0:
                 return None
-                
+
             # Buscar o navegador correspondente ao user_id
             for browser in data.get("data", {}).get("list", []):
                 if browser.get("user_id") == user_id:
@@ -370,55 +384,56 @@ class AdsPowerManager:
                         "webdriver_path": browser.get("webdriver")
                     }
                     return result
-            
+
             return None
-            
+
         except Exception as e:
-            logger.error(f"❌ Erro ao obter informações do navegador para {user_id}: {str(e)}")
+            logger.error(
+                f"❌ Erro ao obter informações do navegador para {user_id}: {str(e)}")
             return None
-    
+
     def connect_selenium(self, browser_info: Dict) -> Optional[webdriver.Chrome]:
         """
         Conecta ao WebDriver do AdsPower.
-        
+
         Args:
             browser_info: Informações do navegador (obtidas de get_browser_info)
-            
+
         Returns:
             Optional[webdriver.Chrome]: Instância do WebDriver ou None se falhar
         """
         selenium_ws = browser_info.get("selenium_ws")
         webdriver_path = browser_info.get("webdriver_path")
-        
+
         if not selenium_ws or not webdriver_path:
             logger.error("❌ Informações de WebDriver incompletas")
             return None
-            
+
         try:
             service = Service(executable_path=webdriver_path)
             options = Options()
             options.add_experimental_option("debuggerAddress", selenium_ws)
-            
+
             driver = webdriver.Chrome(service=service, options=options)
             logger.info("✅ Conectado ao WebDriver Selenium do AdsPower")
             return driver
-            
+
         except Exception as e:
             logger.error(f"❌ Erro ao conectar ao WebDriver: {str(e)}")
             return None
-    
+
     def get_create_profile_stats(self, user_id: str) -> Dict:
         """
         Obtém estatísticas de criação de perfil.
-        
+
         Args:
             user_id: ID do perfil
-            
+
         Returns:
             Dict: Estatísticas do perfil
         """
         profile_info = self.get_profile_info(user_id)
-        
+
         if not profile_info:
             return {
                 "name": "Desconhecido",
@@ -427,7 +442,7 @@ class AdsPowerManager:
                 "last_login": "Nunca",
                 "group": "Desconhecido"
             }
-            
+
         return {
             "name": profile_info.get("name", "Sem nome"),
             "status": profile_info.get("status", "Desconhecido"),
@@ -435,3 +450,16 @@ class AdsPowerManager:
             "last_login": profile_info.get("last_login_time", "Nunca"),
             "group": profile_info.get("group_name", "Sem grupo")
         }
+
+    def is_profile_valid(self, user_id):
+        """Verifica se o perfil ainda existe no AdsPower."""
+        try:
+            response = requests.get(
+                f"{self.base_url}/api/v1/user/info", headers=self.headers, params={"user_id": user_id})
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("code") == 0  # Retorna True se o perfil existe
+            return False
+        except Exception as e:
+            logger.error(f"Erro ao verificar perfil {user_id}: {str(e)}")
+            return False

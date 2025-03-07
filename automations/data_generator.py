@@ -75,8 +75,22 @@ def generate_gmail_credentials():
     
     return credentials
 
-def save_gmail_account(profile_name, email, password, phone_number):
-    """Salva as credenciais de uma conta Gmail no JSON evitando duplicações."""
+def save_gmail_account(email, password, phone_number, profile_name, account_data=None):
+    """
+    Salva as credenciais de uma conta Gmail no JSON evitando duplicações.
+    Esta função só deve ser chamada após a verificação bem-sucedida do SMS.
+    
+    Args:
+        email (str): Email da conta
+        password (str): Senha da conta
+        phone_number (str): Número de telefone verificado via SMS
+        profile_name (str): Nome do perfil no AdsPower
+        account_data (dict, optional): Dados adicionais da conta, incluindo 
+                                       country_code, country_name e activation_id
+    
+    Returns:
+        bool: True se as credenciais foram salvas, False caso contrário
+    """
     credentials_path = "credentials/gmail.json"
     
     try:
@@ -92,13 +106,20 @@ def save_gmail_account(profile_name, email, password, phone_number):
                     # Se o arquivo estiver corrompido, começamos com lista vazia
                     existing_data = []
         
-        # Criar nova entrada de credenciais
+        # Criar nova entrada de credenciais com dados básicos
         new_entry = {
             "email": email,
             "password": password,
             "phone": phone_number,
             "profile": profile_name
         }
+        
+        # Adicionar dados complementares se disponíveis
+        if account_data and isinstance(account_data, dict):
+            # Adicionar todos os campos extras que possam existir
+            for key, value in account_data.items():
+                if key not in new_entry:  # Não sobrescrever campos existentes
+                    new_entry[key] = value
         
         # Verificar se o email já existe na lista
         # Usamos uma lista de índices a serem removidos para não modificar a lista durante iteração

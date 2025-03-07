@@ -60,6 +60,10 @@ class TermsLocators:
     TERMS_CHECKBOX2: str = "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[2]/div/div/div/form/span/section[2]/div/div/div[1]/div[1]/div/div"
     TERMS_CHECKBOX3: str = "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[2]/div/div/div/form/span/section[2]/div/div/div[2]/div[1]/div/div/div[2]"
     TERMS_CONFIRM_BUTTON: str = "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[3]/div/div[1]/div/div/button/div[3]"
+    SECOND_AGREE_BUTTON: str = "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[3]/div/div[1]/div/div/button/div[3]"  # Segundo botão I agree específico
+    CONFIRM_BUTTON: str = "//button[contains(@class, 'confirm')]"
+    RECOVERY_EMAIL_SKIP: str = "//button[contains(@class, 'VfPpkd-LgbsSe')]/span[contains(text(), 'Skip')]"
+# ... outros locators ...
 @dataclass
 class VerificationLocators:
     """Localizadores para a verificação de conta"""

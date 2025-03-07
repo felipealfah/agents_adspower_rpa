@@ -18,6 +18,7 @@ from .locators import phone_locators
 
 logger = logging.getLogger(__name__)
 
+
 class VerificationState(Enum):
     """Estados possíveis da verificação de número."""
     INITIAL = "initial"
@@ -30,6 +31,7 @@ class VerificationState(Enum):
     FAILED_SMS = "failed_sms"
     COMPLETED = "completed"
     FAILED = "failed"
+
 
 @dataclass
 class ActivationInfo:
@@ -45,6 +47,7 @@ class ActivationInfo:
     def is_expired(self) -> bool:
         """Verifica se o número expirou."""
         return (time.time() - self.start_time) > self.max_lifetime
+
 
 class PhoneVerification:
     MAX_PHONE_ATTEMPTS = 3  # 🔹 Máximo de tentativas por país
@@ -66,7 +69,8 @@ class PhoneVerification:
             logger.info("📞 Iniciando processo de verificação de telefone...")
 
             if not self._check_phone_screen():
-                logger.info("📌 Tela de verificação de telefone não encontrada.")
+                logger.info(
+                    "📌 Tela de verificação de telefone não encontrada.")
                 return True
 
             if not self._validate_initial_conditions():
@@ -75,40 +79,46 @@ class PhoneVerification:
             # Contador de tentativas explícito
             attempt_count = 0
             success = False
-            
+
             while attempt_count < self.MAX_PHONE_ATTEMPTS:
                 attempt_count += 1
-                logger.info(f"🔄 Tentativa {attempt_count} de {self.MAX_PHONE_ATTEMPTS} para verificação de telefone")
-                
+                logger.info(
+                    f"🔄 Tentativa {attempt_count} de {self.MAX_PHONE_ATTEMPTS} para verificação de telefone")
+
                 # Garantir que estamos na tela correta antes de cada tentativa
                 if attempt_count > 1:  # Não precisa na primeira tentativa pois já verificamos acima
                     if not self._ensure_phone_verification_screen():
-                        logger.error("❌ Não foi possível acessar a tela de verificação de telefone.")
+                        logger.error(
+                            "❌ Não foi possível acessar a tela de verificação de telefone.")
                         continue  # Tenta a próxima iteração
-                
+
                 try:
                     # Se conseguir concluir um ciclo completo, retorna sucesso
                     if self._try_verification_cycle():
-                        logger.info(f"✅ Verificação concluída com sucesso na tentativa {attempt_count}")
+                        logger.info(
+                            f"✅ Verificação concluída com sucesso na tentativa {attempt_count}")
                         success = True
                         break
-                    
+
                     # Se chegou aqui, a tentativa falhou mas de forma controlada
-                    logger.warning(f"⚠️ Tentativa {attempt_count} falhou. {'Tentando novamente...' if attempt_count < self.MAX_PHONE_ATTEMPTS else 'Sem mais tentativas.'}")
-                    
+                    logger.warning(
+                        f"⚠️ Tentativa {attempt_count} falhou. {'Tentando novamente...' if attempt_count < self.MAX_PHONE_ATTEMPTS else 'Sem mais tentativas.'}")
+
                 except Exception as e:
                     # Captura qualquer exceção não tratada durante o ciclo
-                    logger.error(f"❌ Erro na tentativa {attempt_count}: {str(e)}")
+                    logger.error(
+                        f"❌ Erro na tentativa {attempt_count}: {str(e)}")
                     # Continua para a próxima tentativa se ainda houver tentativas restantes
-                
+
                 # Pequena pausa entre tentativas
                 if attempt_count < self.MAX_PHONE_ATTEMPTS:
                     time.sleep(2)
-            
+
             if not success:
-                logger.error(f"🚨 Todas as {self.MAX_PHONE_ATTEMPTS} tentativas de verificação falharam.")
+                logger.error(
+                    f"🚨 Todas as {self.MAX_PHONE_ATTEMPTS} tentativas de verificação falharam.")
                 return False
-                
+
             return success
 
         except Exception as e:
@@ -138,62 +148,71 @@ class PhoneVerification:
     def _check_phone_screen(self) -> bool:
         """Verifica se a tela de verificação de telefone está presente."""
         try:
-            self.wait.until(EC.presence_of_element_located((By.XPATH, phone_locators.PHONE_INPUT)))
+            self.wait.until(EC.presence_of_element_located(
+                (By.XPATH, phone_locators.PHONE_INPUT)))
             logger.info("✅ Tela de verificação de telefone detectada.")
             return True
         except TimeoutException:
             return False
-    
+
     def _ensure_phone_verification_screen(self, max_attempts=2) -> bool:
         """Garante que estamos na tela de verificação de telefone."""
         for attempt in range(max_attempts):
             try:
                 # Primeiro verificar se já estamos na tela correta usando o método existente
                 if self._check_phone_screen():
-                    logger.info("📱 Já estamos na tela de verificação de telefone. Continuando...")
+                    logger.info(
+                        "📱 Já estamos na tela de verificação de telefone. Continuando...")
                     return True
-                    
+
                 # Se não estiver na tela correta, verificar URL atual
                 current_url = self.driver.current_url
                 logger.warning(f"⚠️ URL atual: {current_url}")
-                
+
                 # Tentar navegar para a URL correta - esta pode precisar ser ajustada
                 # dependendo de como seu fluxo de criação de conta funciona
-                self.driver.get("https://accounts.google.com/signup/v2/webgradsidvphone")
+                self.driver.get(
+                    "https://accounts.google.com/signup/v2/webgradsidvphone")
                 time.sleep(5)
-                
+
                 # Verificar novamente se estamos na tela correta
                 if self._check_phone_screen():
-                    logger.info("📱 Navegação bem-sucedida para a tela de verificação de telefone.")
+                    logger.info(
+                        "📱 Navegação bem-sucedida para a tela de verificação de telefone.")
                     return True
-                    
+
                 # Se ainda não estiver na tela correta, tentar outra abordagem
-                logger.warning(f"⚠️ Tentativa {attempt+1}: Ainda não estamos na tela de verificação de telefone.")
-                
+                logger.warning(
+                    f"⚠️ Tentativa {attempt+1}: Ainda não estamos na tela de verificação de telefone.")
+
                 # Verificar se há botões "Next" ou "Continue" que podem nos levar à próxima tela
                 next_buttons = [
                     "//span[contains(text(),'Next')]",
                     "//span[contains(text(),'Continue')]",
                     "//button[contains(@class, 'VfPpkd-LgbsSe')]"
                 ]
-                
+
                 for button_xpath in next_buttons:
                     try:
                         if self._element_exists(button_xpath, timeout=2):
-                            logger.info(f"🔍 Botão encontrado: {button_xpath}. Tentando clicar...")
-                            self.driver.find_element(By.XPATH, button_xpath).click()
+                            logger.info(
+                                f"🔍 Botão encontrado: {button_xpath}. Tentando clicar...")
+                            self.driver.find_element(
+                                By.XPATH, button_xpath).click()
                             time.sleep(3)
                             if self._check_phone_screen():
                                 return True
                     except:
                         continue
-                    
+
             except Exception as e:
-                logger.warning(f"⚠️ Erro ao tentar garantir tela de verificação: {str(e)}")
+                logger.warning(
+                    f"⚠️ Erro ao tentar garantir tela de verificação: {str(e)}")
                 if attempt < max_attempts - 1:
                     time.sleep(2)  # Pequena pausa antes da próxima tentativa
-                
-        logger.error("❌ Não foi possível garantir que estamos na tela de verificação de telefone.")
+
+        logger.error(
+            "❌ Não foi possível garantir que estamos na tela de verificação de telefone.")
         return False  # Falha após todas as tentativas
 
     def _check_number_availability(self) -> bool:
@@ -205,12 +224,16 @@ class PhoneVerification:
                 if country_code in self.used_countries:
                     continue
 
-                status = self.sms_api.get_number_status(country=country_code, service="go")
-                available_count = status.get("go", 0) if isinstance(status, dict) else status
+                status = self.sms_api.get_number_status(
+                    country=country_code, service="go")
+                available_count = status.get(
+                    "go", 0) if isinstance(status, dict) else status
 
                 if available_count > 0:
-                    available_numbers[country_code] = {'count': available_count, 'country_name': country_name}
-                    logger.info(f"{country_name}: {available_count} disponíveis.")
+                    available_numbers[country_code] = {
+                        'count': available_count, 'country_name': country_name}
+                    logger.info(
+                        f"{country_name}: {available_count} disponíveis.")
 
             if not available_numbers:
                 return False
@@ -219,7 +242,8 @@ class PhoneVerification:
             return True
 
         except Exception as e:
-            logger.error(f"❌ Erro ao verificar disponibilidade de números: {str(e)}")
+            logger.error(
+                f"❌ Erro ao verificar disponibilidade de números: {str(e)}")
             return False
 
     def _get_new_number(self) -> Optional[ActivationInfo]:
@@ -232,7 +256,8 @@ class PhoneVerification:
             ]
 
             if not available_countries:
-                logger.error("🚨 Todos os países foram usados. Nenhum número disponível.")
+                logger.error(
+                    "🚨 Todos os países foram usados. Nenhum número disponível.")
                 return None
 
             # Buscar preços dos países disponíveis
@@ -247,29 +272,32 @@ class PhoneVerification:
                     'country_name': self.sms_api.selected_countries[country],
                     'price': float(prices[country]["go"]["cost"])
                 }
-                for country in available_countries 
-                if country in prices 
+                for country in available_countries
+                if country in prices
                 and "go" in prices[country]
             ]
 
             if not filtered_prices:
-                logger.error("🚨 Nenhum número disponível nos países restantes.")
+                logger.error(
+                    "🚨 Nenhum número disponível nos países restantes.")
                 return None
 
             # Ordenar países pelo preço (do mais barato para o mais caro)
             filtered_prices.sort(key=lambda x: x['price'])
-            
+
             # Tentar cada país na ordem de preço até conseguir um número
             for country_info in filtered_prices:
                 country_code = country_info['country_code']
                 country_name = country_info['country_name']
-                
+
                 logger.info(f"Tentando comprar número no país: {country_name}")
-                
-                activation_id, phone_number = self.sms_api.buy_number(service="go", country=country_code)
-                
+
+                activation_id, phone_number = self.sms_api.buy_number(
+                    service="go", country=country_code)
+
                 if phone_number:
-                    logger.info(f"📞 Número comprado: {phone_number} ({country_name})")
+                    logger.info(
+                        f"📞 Número comprado: {phone_number} ({country_name})")
                     self.phone_number = phone_number
                     return ActivationInfo(
                         activation_id=activation_id,
@@ -279,11 +307,14 @@ class PhoneVerification:
                         state=VerificationState.NUMBER_RECEIVED
                     )
                 else:
-                    logger.warning(f"⚠️ Nenhum número disponível para go no país {country_code}.")
-                    self.used_countries.add(country_code)  # Marcar país como usado
-            
+                    logger.warning(
+                        f"⚠️ Nenhum número disponível para go no país {country_code}.")
+                    # Marcar país como usado
+                    self.used_countries.add(country_code)
+
             # Se chegou aqui, nenhum país tinha números disponíveis
-            logger.error("❌ Não foi possível obter número em nenhum dos países disponíveis.")
+            logger.error(
+                "❌ Não foi possível obter número em nenhum dos países disponíveis.")
             return None
 
         except Exception as e:
@@ -300,25 +331,29 @@ class PhoneVerification:
         """Cancela o número atual e adiciona o país à lista de rejeitados."""
         if self.current_activation:
             try:
-                logger.warning(f"⚠️ Tentando cancelar número {self.current_activation.phone_number}...")
-                
+                logger.warning(
+                    f"⚠️ Tentando cancelar número {self.current_activation.phone_number}...")
+
                 # Verificar se o número já foi usado com sucesso
                 if self.state == VerificationState.COMPLETED:
-                    logger.info("✅ Número já usado com sucesso, não é necessário cancelar.")
+                    logger.info(
+                        "✅ Número já usado com sucesso, não é necessário cancelar.")
                     self.current_activation = None
                     return
-                    
+
                 # Tentar cancelar
-                response = self.sms_api.set_status(self.current_activation.activation_id, 6)
-                
+                response = self.sms_api.set_status(
+                    self.current_activation.activation_id, 6)
+
                 # Registrar independentemente do resultado
                 self.used_countries.add(self.current_activation.country_code)
                 self.current_activation = None
-                
+
                 logger.info("✅ Status do número atualizado.")
-                
+
             except Exception as e:
-                logger.warning(f"⚠️ Erro ao cancelar número, mas continuando: {str(e)}")
+                logger.warning(
+                    f"⚠️ Erro ao cancelar número, mas continuando: {str(e)}")
                 self.current_activation = None
 
     def _element_exists(self, xpath, timeout=3):
@@ -336,7 +371,8 @@ class PhoneVerification:
             elif isinstance(e, TimeoutException):
                 return False  # Elemento não encontrado dentro do timeout
             else:
-                logger.warning(f"⚠️ Erro desconhecido ao verificar elemento: {e}")
+                logger.warning(
+                    f"⚠️ Erro desconhecido ao verificar elemento: {e}")
                 return False  # Qualquer outro erro, também retorna falso
 
     def _submit_phone_number(self) -> bool:
@@ -347,50 +383,62 @@ class PhoneVerification:
 
             # Verificar se a página está pronta
             self.wait.until(
-                lambda driver: driver.execute_script("return document.readyState") == "complete"
+                lambda driver: driver.execute_script(
+                    "return document.readyState") == "complete"
             )
 
             # Localizar campo de telefone com retry
             for attempt in range(3):
                 try:
                     phone_input = WebDriverWait(self.driver, 5).until(
-                        EC.element_to_be_clickable((By.XPATH, phone_locators.PHONE_INPUT))
+                        EC.element_to_be_clickable(
+                            (By.XPATH, phone_locators.PHONE_INPUT))
                     )
                     break
                 except TimeoutException:
                     if attempt == 2:
-                        logger.error("❌ Campo de telefone não encontrado após 3 tentativas")
+                        logger.error(
+                            "❌ Campo de telefone não encontrado após 3 tentativas")
                         return False
-                    logger.warning("⚠️ Campo de telefone não encontrado, tentando novamente...")
+                    logger.warning(
+                        "⚠️ Campo de telefone não encontrado, tentando novamente...")
                     time.sleep(2)
 
             # Garantir que o campo está pronto para input
-            self.driver.execute_script("arguments[0].scrollIntoView(true);", phone_input)
+            self.driver.execute_script(
+                "arguments[0].scrollIntoView(true);", phone_input)
             time.sleep(1)
 
             # Tentar apenas formatos simples para maior confiabilidade
             formats_to_try = [
                 self.current_activation.phone_number,  # Formato básico
-                f"+{self.current_activation.country_code}{self.current_activation.phone_number}"  # Com código de país
+                # Com código de país
+                f"+{self.current_activation.country_code}{self.current_activation.phone_number}"
             ]
 
             for attempt, phone_format in enumerate(formats_to_try):
                 try:
                     # Limpar e preencher com JS para maior confiabilidade
-                    self.driver.execute_script("arguments[0].value = '';", phone_input)
-                    self.driver.execute_script(f"arguments[0].value = '{phone_format}';", phone_input)
-                    logger.info(f"📲 Tentativa {attempt+1}: Formato de número: {phone_format}")
+                    self.driver.execute_script(
+                        "arguments[0].value = '';", phone_input)
+                    self.driver.execute_script(
+                        f"arguments[0].value = '{phone_format}';", phone_input)
+                    logger.info(
+                        f"📲 Tentativa {attempt+1}: Formato de número: {phone_format}")
 
                     # Localizar e clicar no botão Next
                     try:
                         next_button = WebDriverWait(self.driver, 5).until(
-                            EC.element_to_be_clickable((By.XPATH, phone_locators.NEXT_BUTTON))
+                            EC.element_to_be_clickable(
+                                (By.XPATH, phone_locators.NEXT_BUTTON))
                         )
                         # Tentar clicar com JS para maior confiabilidade
-                        self.driver.execute_script("arguments[0].click();", next_button)
+                        self.driver.execute_script(
+                            "arguments[0].click();", next_button)
                         logger.info("✅ Clicado no botão Next com JavaScript")
                     except Exception as e:
-                        logger.error(f"❌ Erro ao clicar no botão Next: {str(e)}")
+                        logger.error(
+                            f"❌ Erro ao clicar no botão Next: {str(e)}")
                         continue
 
                     # Aguardar resposta (mais tempo para processamento)
@@ -400,10 +448,12 @@ class PhoneVerification:
                     try:
                         # Se encontrarmos o campo de código SMS, o número foi aceito
                         code_field = WebDriverWait(self.driver, 3).until(
-                            EC.presence_of_element_located((By.XPATH, phone_locators.CODE_INPUT))
+                            EC.presence_of_element_located(
+                                (By.XPATH, phone_locators.CODE_INPUT))
                         )
                         if code_field.is_displayed():
-                            logger.info("✅ Número aceito! Campo de código SMS detectado.")
+                            logger.info(
+                                "✅ Número aceito! Campo de código SMS detectado.")
                             return True
                     except TimeoutException:
                         # Se não encontramos o campo de código, verificar erro
@@ -413,30 +463,36 @@ class PhoneVerification:
                     error_xpath = "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[2]/div/div/div[1]/form/span/section/div/div/div[2]/div/div[2]/div[2]/div"
                     try:
                         if self._element_exists(error_xpath, timeout=1):
-                            error_element = self.driver.find_element(By.XPATH, error_xpath)
+                            error_element = self.driver.find_element(
+                                By.XPATH, error_xpath)
                             error_text = error_element.text
-                            logger.warning(f"⚠️ Erro detectado: '{error_text}'")
+                            logger.warning(
+                                f"⚠️ Erro detectado: '{error_text}'")
                             continue
                     except:
                         pass
 
                     # Ver se ainda estamos na tela de telefone
                     if self._element_exists(phone_locators.PHONE_INPUT, timeout=1):
-                        logger.warning("⚠️ Ainda na tela de telefone. Número rejeitado.")
+                        logger.warning(
+                            "⚠️ Ainda na tela de telefone. Número rejeitado.")
                         continue
-                    
+
                     # Se chegamos aqui e não detectamos erro ou campo de código, verificar a URL
                     current_url = self.driver.current_url
                     if "verifyphone" in current_url:
-                        logger.info("✅ URL indica que avançamos para verificação de telefone")
+                        logger.info(
+                            "✅ URL indica que avançamos para verificação de telefone")
                         return True
-                    
-                    logger.info("✅ Nenhum erro detectado, assumindo que o número foi aceito")
+
+                    logger.info(
+                        "✅ Nenhum erro detectado, assumindo que o número foi aceito")
                     return True
-                    
+
                 except Exception as e:
-                    logger.warning(f"⚠️ Erro com formato {phone_format}: {str(e)}")
-            
+                    logger.warning(
+                        f"⚠️ Erro com formato {phone_format}: {str(e)}")
+
             # Se tentou todos os formatos e nenhum funcionou
             logger.error("❌ Todos os formatos de número foram rejeitados")
             self._cancel_number()
@@ -453,22 +509,25 @@ class PhoneVerification:
         try:
             # Adicionar refresh da página se não for a primeira tentativa
             if self.used_countries:  # Se já usou algum país, não é a primeira tentativa
-                logger.info("🔄 Recarregando a página antes de nova tentativa...")
+                logger.info(
+                    "🔄 Recarregando a página antes de nova tentativa...")
                 self.driver.refresh()
                 time.sleep(5)  # Aguardar carregamento completo da página
-                
+
                 # Verificar se ainda estamos na tela de verificação de telefone
                 if not self._check_phone_screen():
-                    logger.warning("⚠️ Após refresh, não estamos na tela de verificação de telefone.")
+                    logger.warning(
+                        "⚠️ Após refresh, não estamos na tela de verificação de telefone.")
                     # Tentar redirecionamento?
-                    
+
             # Resto do código original continua daqui
             self.current_activation = self._get_new_number()
             if not self.current_activation:
                 logger.error("❌ Falha ao obter um número para verificação.")
                 return False
 
-            logger.info(f"📞 Número comprado: {self.current_activation.phone_number} ({self.current_activation.country_code})")
+            logger.info(
+                f"📞 Número comprado: {self.current_activation.phone_number} ({self.current_activation.country_code})")
 
             if not self._submit_phone_number():
                 return False  # Se falhar, já cancela e tenta outro
@@ -484,8 +543,6 @@ class PhoneVerification:
             logger.error(f"❌ Erro no ciclo de verificação: {str(e)}")
             self._cancel_number()
         return False
-    
-
 
     def _check_phone_error(self) -> bool:
         """Verifica se há erro ao inserir o número de telefone."""
@@ -501,7 +558,7 @@ class PhoneVerification:
                     return True  # Erro detectado
         except TimeoutException:
             return False  # Nenhum erro detectado
-    
+
     def _cancel_current_number(self):
         """Cancela o número rejeitado e marca o país como usado."""
         if not self.current_activation:
@@ -512,19 +569,24 @@ class PhoneVerification:
 
         # 🔹 Adicionar o país à lista de usados ANTES de tentar outro número
         self.used_countries.add(country_code)
-        logger.info(f"🚫 País {country_code} adicionado à lista de usados. Evitaremos esse país nas próximas tentativas.")
+        logger.info(
+            f"🚫 País {country_code} adicionado à lista de usados. Evitaremos esse país nas próximas tentativas.")
 
         # 🔹 Tentar cancelar o número com um pequeno delay
         time.sleep(1)
         try:
-            logger.warning(f"⚠️ Cancelando número {self.current_activation.phone_number}...")
-            self.sms_api.set_status(activation_id, 6)  # Status 6 = Cancelar número
+            logger.warning(
+                f"⚠️ Cancelando número {self.current_activation.phone_number}...")
+            # Status 6 = Cancelar número
+            self.sms_api.set_status(activation_id, 6)
             logger.info("✅ Número cancelado com sucesso.")
         except Exception as e:
             if "BAD_STATUS" in str(e):
-                logger.warning("⚠️ Não foi possível cancelar o número. Continuando...")
+                logger.warning(
+                    "⚠️ Não foi possível cancelar o número. Continuando...")
             else:
-                logger.error(f"❌ Erro ao cancelar o número {activation_id}: {str(e)}")
+                logger.error(
+                    f"❌ Erro ao cancelar o número {activation_id}: {str(e)}")
 
         self.current_activation = None  # Resetar ativação
 
@@ -540,7 +602,7 @@ class PhoneVerification:
             # Definir timeout global para todo o processo de SMS
             sms_process_start = time.time()
             sms_global_timeout = 180  # 3 minutos como timeout total para todo o processo
-            
+
             logger.info(f"📩 Aguardando SMS para ID {activation_id}...")
 
             # Aguarda até max_attempts para receber o SMS inicialmente
@@ -553,33 +615,39 @@ class PhoneVerification:
             # Se não recebeu o SMS no período inicial, tenta solicitar novo código
             resent_attempt = 0
             max_resent_attempts = 2  # Máximo de tentativas de reenvio
-            
+
             # Verifica se ainda está dentro do timeout global
-            while (not sms_code and 
-                resent_attempt < max_resent_attempts and 
-                (time.time() - sms_process_start) < sms_global_timeout):
-                
+            while (not sms_code and
+                   resent_attempt < max_resent_attempts and
+                   (time.time() - sms_process_start) < sms_global_timeout):
+
                 resent_attempt += 1
-                logger.warning(f"⚠️ SMS não recebido após 60 segundos. Tentativa de reenvio #{resent_attempt}...")
-                
+                logger.warning(
+                    f"⚠️ SMS não recebido após 60 segundos. Tentativa de reenvio #{resent_attempt}...")
+
                 # Verifica se ainda temos tempo dentro do timeout global
-                remaining_time = sms_global_timeout - (time.time() - sms_process_start)
+                remaining_time = sms_global_timeout - \
+                    (time.time() - sms_process_start)
                 if remaining_time < 30:  # Se restam menos de 30 segundos, não vale a pena tentar reenvio
-                    logger.warning(f"⏱ Tempo restante insuficiente ({remaining_time:.1f}s) para nova tentativa. Abortando.")
+                    logger.warning(
+                        f"⏱ Tempo restante insuficiente ({remaining_time:.1f}s) para nova tentativa. Abortando.")
                     break
-                    
+
                 # Aguarda até que o botão esteja habilitado
-                logger.info("🕒 Aguardando botão 'Get a new Code' ficar habilitado...")
-                
+                logger.info(
+                    "🕒 Aguardando botão 'Get a new Code' ficar habilitado...")
+
                 # Calcula tempo máximo de espera pelo botão baseado no tempo restante
-                wait_time = min(25, remaining_time / 2)  # Não espera mais que 25s ou metade do tempo restante
+                # Não espera mais que 25s ou metade do tempo restante
+                wait_time = min(25, remaining_time / 2)
                 time.sleep(wait_time)
-                
+
                 # Verifica se ainda temos tempo dentro do timeout global
                 if (time.time() - sms_process_start) >= sms_global_timeout:
-                    logger.warning("⏱ Timeout global atingido durante espera pelo botão. Abortando.")
+                    logger.warning(
+                        "⏱ Timeout global atingido durante espera pelo botão. Abortando.")
                     break
-                
+
                 # Tentar múltiplos seletores para o botão de reenvio
                 get_new_code_buttons = [
                     phone_locators.GET_NEW_CODE_BUTTON_ALT,
@@ -589,74 +657,90 @@ class PhoneVerification:
                     "//span[text()='Get a new code']/parent::button",
                     "//button[contains(@class, 'VfPpkd-LgbsSe') and contains(., 'new code')]"
                 ]
-                
+
                 button_clicked = False
                 for button_xpath in get_new_code_buttons:
                     try:
-                        logger.info(f"🔍 Tentando localizar botão usando seletor: {button_xpath}")
-                        
+                        logger.info(
+                            f"🔍 Tentando localizar botão usando seletor: {button_xpath}")
+
                         # Tentativa com wait mais curto para cada seletor
                         get_new_code_button = WebDriverWait(self.driver, 2).until(
-                            EC.element_to_be_clickable((By.XPATH, button_xpath))
+                            EC.element_to_be_clickable(
+                                (By.XPATH, button_xpath))
                         )
-                        
+
                         # Adiciona verificação de visibilidade e habilitação
                         if not get_new_code_button.is_displayed() or not get_new_code_button.is_enabled():
-                            logger.warning(f"⚠️ Botão encontrado mas não está visível ou habilitado ainda.")
+                            logger.warning(
+                                f"⚠️ Botão encontrado mas não está visível ou habilitado ainda.")
                             continue
-                        
+
                         logger.info("✅ Botão 'Get a new Code' encontrado!")
-                        
-                        # Rola para garantir visibilidade 
-                        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", get_new_code_button)
+
+                        # Rola para garantir visibilidade
+                        self.driver.execute_script(
+                            "arguments[0].scrollIntoView({block: 'center'});", get_new_code_button)
                         time.sleep(1)
-                        
+
                         # Tenta várias estratégias de clique
-                        for click_attempt in range(3):  # Tenta até 3 vezes com diferentes estratégias
+                        # Tenta até 3 vezes com diferentes estratégias
+                        for click_attempt in range(3):
                             try:
                                 if click_attempt == 0:
                                     # Estratégia 1: Clique direto
                                     get_new_code_button.click()
-                                    logger.info("✅ Clicou no botão 'Get a new Code' usando .click()")
+                                    logger.info(
+                                        "✅ Clicou no botão 'Get a new Code' usando .click()")
                                     button_clicked = True
                                     break
                                 elif click_attempt == 1:
                                     # Estratégia 2: Clique JavaScript
-                                    self.driver.execute_script("arguments[0].click();", get_new_code_button)
-                                    logger.info("✅ Clicou no botão 'Get a new Code' usando JavaScript")
+                                    self.driver.execute_script(
+                                        "arguments[0].click();", get_new_code_button)
+                                    logger.info(
+                                        "✅ Clicou no botão 'Get a new Code' usando JavaScript")
                                     button_clicked = True
                                     break
                                 else:
                                     # Estratégia 3: Actions chain
                                     from selenium.webdriver.common.action_chains import ActionChains
                                     actions = ActionChains(self.driver)
-                                    actions.move_to_element(get_new_code_button).click().perform()
-                                    logger.info("✅ Clicou no botão 'Get a new Code' usando ActionChains")
+                                    actions.move_to_element(
+                                        get_new_code_button).click().perform()
+                                    logger.info(
+                                        "✅ Clicou no botão 'Get a new Code' usando ActionChains")
                                     button_clicked = True
                                     break
                             except Exception as click_error:
-                                strategy_name = ["clique direto", "JavaScript", "ActionChains"][click_attempt]
-                                logger.warning(f"⚠️ Estratégia {click_attempt+1} ({strategy_name}) falhou: {click_error}")
+                                strategy_name = [
+                                    "clique direto", "JavaScript", "ActionChains"][click_attempt]
+                                logger.warning(
+                                    f"⚠️ Estratégia {click_attempt+1} ({strategy_name}) falhou: {click_error}")
                                 # Continua para a próxima estratégia
-                        
+
                         if button_clicked:
                             break  # Sai do loop de seletores se clicou com sucesso
-                            
+
                     except Exception as e:
-                        logger.warning(f"⚠️ Não encontrou botão com seletor {button_xpath}: {e}")
-                
+                        logger.warning(
+                            f"⚠️ Não encontrou botão com seletor {button_xpath}: {e}")
+
                 # Verifica se ainda temos tempo dentro do timeout global
                 if (time.time() - sms_process_start) >= sms_global_timeout:
-                    logger.warning("⏱ Timeout global atingido após tentativas de clique. Abortando.")
+                    logger.warning(
+                        "⏱ Timeout global atingido após tentativas de clique. Abortando.")
                     break
-                    
+
                 if not button_clicked:
-                    logger.error("❌ Não foi possível encontrar ou clicar no botão 'Get a new Code'")
-                    
+                    logger.error(
+                        "❌ Não foi possível encontrar ou clicar no botão 'Get a new Code'")
+
                     # Estratégia de último recurso: Tente recarregar a página
                     if resent_attempt == 1:  # Apenas na primeira tentativa de reenvio
                         try:
-                            logger.warning("🔄 Tentando recarregar a página como último recurso...")
+                            logger.warning(
+                                "🔄 Tentando recarregar a página como último recurso...")
                             self.driver.refresh()
                             time.sleep(5)
                             continue  # Vai para a próxima tentativa
@@ -666,39 +750,49 @@ class PhoneVerification:
                     # Após clicar com sucesso
                     logger.info("🕒 Aguardando processamento após clique...")
                     time.sleep(3)
-                    
+
                     # Verifica se ainda temos tempo dentro do timeout global
                     if (time.time() - sms_process_start) >= sms_global_timeout:
-                        logger.warning("⏱ Timeout global atingido após processamento de clique. Abortando.")
+                        logger.warning(
+                            "⏱ Timeout global atingido após processamento de clique. Abortando.")
                         break
-                        
+
                     # Verificar se voltou para tela de telefone ou se ainda está na mesma tela
                     try:
                         if self._element_exists(phone_locators.PHONE_INPUT, timeout=3):
-                            logger.info("📞 Retornando para tela de entrada de telefone...")
-                            
+                            logger.info(
+                                "📞 Retornando para tela de entrada de telefone...")
+
                             # Reenviar o mesmo número
                             if not self._submit_phone_number():
-                                logger.error("❌ Falha ao resubmeter o mesmo número.")
+                                logger.error(
+                                    "❌ Falha ao resubmeter o mesmo número.")
                                 continue
                         elif self._element_exists(phone_locators.CODE_INPUT, timeout=3):
-                            logger.info("📲 Ainda na tela de código, aguardando recebimento do SMS...")
+                            logger.info(
+                                "📲 Ainda na tela de código, aguardando recebimento do SMS...")
                         else:
-                            logger.warning("⚠️ Estado inesperado após clicar em reenviar.")
+                            logger.warning(
+                                "⚠️ Estado inesperado após clicar em reenviar.")
                     except Exception as e:
-                        logger.error(f"❌ Erro ao verificar estado após clique: {e}")
-                    
+                        logger.error(
+                            f"❌ Erro ao verificar estado após clique: {e}")
+
                     # Verifica se ainda temos tempo dentro do timeout global
-                    remaining_time = sms_global_timeout - (time.time() - sms_process_start)
+                    remaining_time = sms_global_timeout - \
+                        (time.time() - sms_process_start)
                     if remaining_time < 30:  # Não vale a pena esperar novo SMS se restar pouco tempo
-                        logger.warning(f"⏱ Tempo restante insuficiente ({remaining_time:.1f}s) para aguardar SMS. Abortando.")
+                        logger.warning(
+                            f"⏱ Tempo restante insuficiente ({remaining_time:.1f}s) para aguardar SMS. Abortando.")
                         break
-                    
+
                     # Calcula máximo de tentativas de SMS baseado no tempo restante
-                    max_sms_attempts = max(1, min(6, int(remaining_time / 15)))  # Pelo menos 1, no máximo 6
-                    
+                    # Pelo menos 1, no máximo 6
+                    max_sms_attempts = max(1, min(6, int(remaining_time / 15)))
+
                     # Esperar pelo SMS novamente
-                    logger.info(f"📩 Aguardando novo SMS para ID {activation_id} por {max_sms_attempts} tentativas...")
+                    logger.info(
+                        f"📩 Aguardando novo SMS para ID {activation_id} por {max_sms_attempts} tentativas...")
                     sms_code = self.sms_api.get_sms_code(
                         activation_id,
                         max_attempts=max_sms_attempts,
@@ -708,16 +802,19 @@ class PhoneVerification:
             # Se ainda não recebeu o código após todas as tentativas
             if not sms_code:
                 elapsed_time = time.time() - sms_process_start
-                logger.error(f"❌ Não foi possível obter código SMS após {elapsed_time:.1f}s e {resent_attempt} tentativas de reenvio.")
+                logger.error(
+                    f"❌ Não foi possível obter código SMS após {elapsed_time:.1f}s e {resent_attempt} tentativas de reenvio.")
                 self._cancel_current_number()
                 return False
 
             logger.info(f"✅ Código recebido: {sms_code}")
-            
+
             # Verifica se ainda temos tempo dentro do timeout global
-            remaining_time = sms_global_timeout - (time.time() - sms_process_start)
+            remaining_time = sms_global_timeout - \
+                (time.time() - sms_process_start)
             if remaining_time < 10:  # Precisamos de pelo menos 10 segundos para submeter o código
-                logger.warning(f"⏱ Tempo restante insuficiente ({remaining_time:.1f}s) para submeter o código. Abortando.")
+                logger.warning(
+                    f"⏱ Tempo restante insuficiente ({remaining_time:.1f}s) para submeter o código. Abortando.")
                 self._cancel_current_number()
                 return False
 
@@ -728,39 +825,47 @@ class PhoneVerification:
                 for attempt in range(3):
                     try:
                         code_input = WebDriverWait(self.driver, 5).until(
-                            EC.presence_of_element_located((By.XPATH, phone_locators.CODE_INPUT))
+                            EC.presence_of_element_located(
+                                (By.XPATH, phone_locators.CODE_INPUT))
                         )
                         break
                     except:
                         if attempt == 2:
                             raise
-                        logger.warning(f"⚠️ Tentativa {attempt+1} de localizar campo de código falhou.")
+                        logger.warning(
+                            f"⚠️ Tentativa {attempt+1} de localizar campo de código falhou.")
                         time.sleep(2)
-                
+
                 if not code_input:
-                    raise Exception("Campo de código não encontrado após múltiplas tentativas")
-                    
+                    raise Exception(
+                        "Campo de código não encontrado após múltiplas tentativas")
+
                 # Limpar e inserir o código SEM o espaço adicional
                 code_input.clear()
-                self.driver.execute_script(f"arguments[0].value = '{sms_code}';", code_input)
+                self.driver.execute_script(
+                    f"arguments[0].value = '{sms_code}';", code_input)
                 logger.info("✅ Código inserido no campo.")
 
                 # Clicar no botão "Next" para validar o código
                 next_button = WebDriverWait(self.driver, 10).until(
-                    EC.element_to_be_clickable((By.XPATH, phone_locators.NEXT_BUTTON))
+                    EC.element_to_be_clickable(
+                        (By.XPATH, phone_locators.NEXT_BUTTON))
                 )
-                
+
                 # Scroll até o botão
-                self.driver.execute_script("arguments[0].scrollIntoView(true);", next_button)
+                self.driver.execute_script(
+                    "arguments[0].scrollIntoView(true);", next_button)
                 time.sleep(1)
-                
+
                 # Tentar clicar
                 try:
                     next_button.click()
                 except:
-                    self.driver.execute_script("arguments[0].click();", next_button)
-                
-                logger.info("✅ Cliquei no botão Next para validar o código SMS.")
+                    self.driver.execute_script(
+                        "arguments[0].click();", next_button)
+
+                logger.info(
+                    "✅ Cliquei no botão Next para validar o código SMS.")
 
                 # Aguardar processamento
                 time.sleep(5)
@@ -771,35 +876,40 @@ class PhoneVerification:
                     "Code is incorrect",
                     "That code didn't work"  # Este contém uma aspa simples que causa o erro XPath
                 ]
-                
+
                 for error_msg in error_messages:
                     try:
                         # Método 1: Usando contains() com aspas duplas (escape para aspas simples)
                         error_msg_escaped = error_msg.replace("'", "\\'")
                         error_xpath = f"//div[contains(text(), \"{error_msg_escaped}\")]"
-                        
+
                         if self._element_exists(error_xpath, timeout=2):
-                            logger.warning(f"⚠️ Erro detectado: '{error_msg}'. Código inválido.")
+                            logger.warning(
+                                f"⚠️ Erro detectado: '{error_msg}'. Código inválido.")
                             self._cancel_current_number()
                             return False
-                            
+
                         # Método 2: Verificação parcial do texto (sem aspas)
                         if "didn't work" in error_msg:
                             alt_xpath = "//div[contains(text(), 'code') and contains(text(), 'work')]"
                             if self._element_exists(alt_xpath, timeout=1):
-                                logger.warning(f"⚠️ Erro alternativo detectado para: '{error_msg}'")
-                                self._cancel_current_number() 
+                                logger.warning(
+                                    f"⚠️ Erro alternativo detectado para: '{error_msg}'")
+                                self._cancel_current_number()
                                 return False
                     except Exception as e:
-                        logger.warning(f"⚠️ Erro ao verificar mensagem de erro '{error_msg}': {e}")
+                        logger.warning(
+                            f"⚠️ Erro ao verificar mensagem de erro '{error_msg}': {e}")
                         # Continua com as outras verificações, não falha aqui
 
                 try:
                     # Tenta atualizar o status antes de confirmação final
-                    self.sms_api.set_status(activation_id, 8)  # Status 8 = Número utilizado com sucesso
+                    # Status 8 = Número utilizado com sucesso
+                    self.sms_api.set_status(activation_id, 8)
                 except Exception as e:
-                    logger.warning(f"⚠️ Erro ao atualizar status do número, mas continuando: {e}")
-                    
+                    logger.warning(
+                        f"⚠️ Erro ao atualizar status do número, mas continuando: {e}")
+
                 self.state = VerificationState.COMPLETED
                 logger.info("✅ Verificação de telefone concluída com sucesso!")
 
@@ -814,3 +924,17 @@ class PhoneVerification:
             logger.error(f"❌ Erro na verificação SMS: {str(e)}")
             self._cancel_current_number()
             return False
+
+    def get_current_phone_data(self):
+        """Retorna os dados atuais do telefone em uso."""
+        if self.current_activation:
+            return {
+                'phone_number': self.current_activation.phone_number,
+                'country_code': self.current_activation.country_code,
+                'activation_id': self.current_activation.activation_id,
+                'country_name': self.sms_api.selected_countries.get(
+                    self.current_activation.country_code,
+                    "unknown"
+                )
+            }
+        return None

@@ -4,7 +4,6 @@ import sys
 import time
 import json
 import pandas as pd
-import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 
 # 🔹 Adicionar o caminho correto do projeto antes das importações
@@ -112,7 +111,7 @@ def clear_all_accounts():
 st.sidebar.title("🔧 Menu de Navegação")
 aba_selecionada = st.sidebar.radio("Selecione uma opção:", 
                                  ["🔑 Gerenciar Credenciais", "📩 Automação Gmail", 
-                                  "📊 Dashboard", "📱 Gerenciar Números"])
+                                  "📱 Gerenciar Números"])
 
 # Adicionar informações de saldo na barra lateral
 try:
@@ -397,9 +396,16 @@ elif aba_selecionada == "📩 Automação Gmail":
             if sucesso and account_data:
                 status.update(label="Conta criada com sucesso!", state="complete")
                 st.success("✅ Conta Gmail criada com sucesso!")
-                st.write(f"📧 **Email:** {account_data['email']} - 📱 **Telefone:** {account_data['phone']}")
+                
+                # Mostrar informações mais completas sobre a conta criada
+                st.write(f"""
+                📧 **Email:** {account_data['email']}  
+                📱 **Telefone:** {account_data['phone']} ({account_data.get('country_name', 'Desconhecido')})  
+                👤 **Nome:** {account_data.get('first_name', '')} {account_data.get('last_name', '')}
+                """)
 
                 # Registrar número no PhoneManager para possível reutilização
+                # Isto só acontece quando a verificação de SMS foi bem-sucedida
                 if not use_existing_number and 'phone' in account_data and 'activation_id' in account_data:
                     try:
                         phone_manager.add_number(
@@ -408,19 +414,36 @@ elif aba_selecionada == "📩 Automação Gmail":
                             activation_id=account_data['activation_id'],
                             service="go"
                         )
-                        st.info("✅ Número registrado para possível reutilização.")
+                        st.info("✅ Número verificado e registrado para possível reutilização.")
                     except Exception as e:
                         st.warning(f"⚠️ Não foi possível registrar o número para reutilização: {str(e)}")
 
-                # 🔹 Salvar credenciais
+                # 🔹 Salvar credenciais com todos os dados
                 try:
                     existing_credentials = []
                     if os.path.exists(CREDENTIALS_PATH) and os.path.getsize(CREDENTIALS_PATH) > 0:
                         with open(CREDENTIALS_PATH, "r") as file:
-                            existing_credentials = json.load(file)
+                            try:
+                                existing_credentials = json.load(file)
+                                if not isinstance(existing_credentials, list):
+                                    existing_credentials = []
+                            except json.JSONDecodeError:
+                                existing_credentials = []
 
                     # Adicionar timestamp de criação
                     account_data["creation_date"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    # Garantir que todos os campos importantes estejam presentes
+                    required_fields = [
+                        "email", "password", "phone", "profile", 
+                        "country_code", "country_name", "activation_id",
+                        "first_name", "last_name"
+                    ]
+                    
+                    for field in required_fields:
+                        if field not in account_data:
+                            account_data[field] = "unknown"
+                            
                     existing_credentials.append(account_data)
 
                     with open(CREDENTIALS_PATH, "w") as file:
@@ -514,6 +537,9 @@ elif aba_selecionada == "📩 Automação Gmail":
                 | **Email:** | `{email}` |
                 | **Senha:** | `{cred.get('password', 'N/A')}` |
                 | **Telefone:** | `{telefone}` |
+                | **País:** | `{cred.get('country_name', 'N/A')}` |
+                | **ID de Ativação:** | `{cred.get('activation_id', 'N/A')}` |
+                | **Nome:** | `{cred.get('first_name', 'N/A')} {cred.get('last_name', 'N/A')}` |
                 | **Perfil:** | `{profile}` |
                 | **Data de Criação:** | `{creation_date}` |
                 """)
@@ -532,98 +558,77 @@ elif aba_selecionada == "📩 Automação Gmail":
         st.info("📝 Nenhuma conta criada ainda. Use a funcionalidade 'Criar Conta Gmail' para adicionar contas.")
 
 
-# 🔹 **ABA 3 - DASHBOARD**
-elif aba_selecionada == "📊 Dashboard":
-    st.title("📊 Dashboard de Estatísticas")
+# 🔹 **ABA 3 - GERENCIAR NÚMEROS**
+elif aba_selecionada == "📱 Gerenciar Números":
+    st.title("📱 Gerenciamento de Números de Telefone")
     
-    # Coletar dados das contas criadas
-    accounts = []
-    if os.path.exists(CREDENTIALS_PATH) and os.path.getsize(CREDENTIALS_PATH) > 0:
-        try:
-            with open(CREDENTIALS_PATH, "r") as file:
-                accounts = json.load(file)
-        except json.JSONDecodeError:
-            st.error("❌ Erro ao carregar arquivo de contas. Formato inválido.")
+    # Carregar todos os números disponíveis
+    números = phone_manager._load_numbers()
     
-    if not accounts:
-        st.warning("⚠️ Nenhuma conta encontrada para gerar estatísticas.")
-        st.stop()
-    
-    # Métricas principais
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Total de Contas", len(accounts))
-    
-    with col2:
-        # Contas criadas nos últimos 7 dias
-        now = datetime.now()
-        week_ago = now - timedelta(days=7)
-        recent_accounts = 0
-        
-        for account in accounts:
-            if "creation_date" in account:
-                try:
-                    creation_date = datetime.strptime(account["creation_date"], "%Y-%m-%d %H:%M:%S")
-                    if creation_date > week_ago:
-                        recent_accounts += 1
-                except (ValueError, TypeError):
-                    pass
-        
-        st.metric("Últimos 7 dias", recent_accounts)
-    
-    with col3:
-        # Taxa de sucesso (se tivermos os dados necessários)
-        # Aqui você precisaria de um log de tentativas
-        st.metric("Telefones Reutilizados", len(phone_manager._load_numbers()))
-    
-    with col4:
-        # Saldo da API SMS
-        balance = sms_api.get_balance() or 0
-        st.metric("Saldo SMS API", f"{balance:.2f} RUB")
-    
-    # Gráfico de criação ao longo do tempo
-    st.subheader("📈 Criação de Contas ao Longo do Tempo")
-    
-    # Preparar dados para o gráfico
-    date_counts = {}
-    
-    for account in accounts:
-        if "creation_date" in account:
-            try:
-                date_str = account["creation_date"].split()[0]  # Apenas a data
-                date_counts[date_str] = date_counts.get(date_str, 0) + 1
-            except (AttributeError, IndexError):
-                pass
-    
-    if date_counts:
-        # Converter para DataFrame
-        df_dates = pd.DataFrame({
-            "Data": list(date_counts.keys()),
-            "Contas": list(date_counts.values())
-        })
-        
-        # Ordenar por data
-        df_dates["Data"] = pd.to_datetime(df_dates["Data"])
-        df_dates = df_dates.sort_values("Data")
-        
-        # Criar gráfico
-        fig, ax = plt.subplots(figsize=(10, 4))
-        ax.bar(df_dates["Data"], df_dates["Contas"], color='#1f77b4')
-        ax.set_xlabel("Data")
-        ax.set_ylabel("Número de Contas")
-        ax.set_title("Contas Criadas por Dia")
-        
-        # Adicionar rótulos de dados
-        for i, v in enumerate(df_dates["Contas"]):
-            ax.text(i, v + 0.1, str(v), ha='center')
-            
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        
-        st.pyplot(fig)
+    if not números:
+        st.warning("⚠️ Nenhum número de telefone disponível para gerenciamento.")
     else:
-        st.info("Não há dados suficientes para gerar o gráfico de criação ao longo do tempo.")
-    
-    # Estatísticas de uso de telefone
-    st.subheader("📱 Estatísticas de Uso de Números")
+        # Mostrar estatísticas básicas
+        st.subheader("📊 Estatísticas de Números")
+        stats = phone_manager.get_stats()
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total de Números", stats["total_numbers"])
+        with col2:
+            st.metric("Números Ativos", stats["active_numbers"])
+        with col3:
+            st.metric("Economia Estimada", stats["estimated_savings"])
+        
+        # Listar todos os números com detalhes
+        st.subheader("📋 Lista de Números")
+        
+        # Adicionar busca
+        search_number = st.text_input("🔍 Filtrar por número", placeholder="Digite parte do número...")
+        
+        # Filtrar números
+        filtered_numbers = números
+        if search_number:
+            filtered_numbers = [n for n in números if search_number in n.get("phone_number", "")]
+            st.info(f"Encontrados {len(filtered_numbers)} números contendo '{search_number}'")
+        
+        # Mostrar os números disponíveis
+        for i, número in enumerate(filtered_numbers):
+            phone = número.get("phone_number", "N/A")
+            country = número.get("country_code", "N/A")
+            first_used = datetime.fromtimestamp(número.get("first_used", 0))
+            last_used = datetime.fromtimestamp(número.get("last_used", 0))
+            services = número.get("services", [])
+            times_used = número.get("times_used", 0)
+            
+            # Verificar se o número ainda está ativo
+            now = time.time()
+            time_since_first_use = now - número.get("first_used", 0)
+            is_active = time_since_first_use < phone_manager.reuse_window
+            
+            # Calcular tempo restante se estiver ativo
+            time_left = ""
+            if is_active:
+                remaining_seconds = phone_manager.reuse_window - time_since_first_use
+                minutes = int(remaining_seconds // 60)
+                seconds = int(remaining_seconds % 60)
+                time_left = f"{minutes}m {seconds}s"
+            
+            # Criar um card para o número
+            status_color = "green" if is_active else "gray"
+            status_text = "Ativo" if is_active else "Expirado"
+            
+            with st.expander(f"☎️ {phone} - {status_text} {'(' + time_left + ')' if time_left else ''}"):
+                st.markdown(f"""
+                | Detalhes do Número | |
+                |----------------|--------------|
+                | **Número:** | `{phone}` |
+                | **País:** | `{country}` |
+                | **Status:** | <span style='color:{status_color}'>{status_text}</span> |
+                | **Tempo restante:** | {time_left if is_active else "Expirado"} |
+                | **ID de Ativação:** | `{número.get('activation_id', 'N/A')}` |
+                | **Primeira Utilização:** | {first_used.strftime('%Y-%m-%d %H:%M:%S')} |
+                | **Última Utilização:** | {last_used.strftime('%Y-%m-%d %H:%M:%S')} |
+                | **Serviços Utilizados:** | {', '.join(services)} |
+                | **Vezes Utilizado:** | {times_used} |
+                """, unsafe_allow_html=True)
