@@ -64,7 +64,7 @@ def stop_browser(base_url, headers, user_id):
 
     Returns:
         bool: True se o navegador foi fechado com sucesso, False caso contrário.
-    """
+    
     url_stop = f"{base_url}/api/v1/browser/stop?user_id={user_id}"
     response = requests.get(url_stop, headers=headers)
 
@@ -83,7 +83,7 @@ def stop_browser(base_url, headers, user_id):
 
     print(f"✅ Navegador do perfil {user_id} fechado com sucesso!")
     return True
-
+    """
 
 def get_active_browser_info(base_url, headers, user_id):
     """

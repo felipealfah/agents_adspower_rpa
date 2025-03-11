@@ -77,40 +77,69 @@ class GmailCreator:
             self.state = GmailCreationState.PHONE_VERIFICATION
             phone_verify = PhoneVerification(self.driver, self.sms_api)
 
-            # Se temos parâmetros de telefone para reutilização
-            if phone_params and isinstance(phone_params, dict) and phone_params.get('reuse_number'):
-                logger.info(
-                    f"♻️ Configurando reutilização de número: {phone_params.get('phone_number')}")
-                phone_verify.reuse_number = True
-                phone_verify.predefined_number = phone_params.get(
-                    'phone_number')
-                phone_verify.predefined_activation_id = phone_params.get(
-                    'activation_id')
-                phone_verify.predefined_country_code = phone_params.get(
-                    'country_code')
+            # Inicializar phone_manager se necessário
+            if hasattr(self, 'phone_manager') and self.phone_manager:
+                phone_verify.phone_manager = self.phone_manager
 
-            # Esta chamada inclui todo o processo de verificação por SMS
-            # O método só retorna True se a verificação for bem-sucedida
-            if not phone_verify.handle_verification():
-                raise GmailCreationError("❌ Falha na verificação de telefone.")
+            # Variáveis para controle de fluxo
+            phone_verification_success = False
+            phone_data = None
 
-            # 🔹 Só chegamos aqui se a verificação do SMS foi bem-sucedida
-            # Agora podemos capturar com segurança os dados do telefone verificado
-            phone_data = phone_verify.get_current_phone_data()
-            if phone_data:
-                phone_number = phone_data.get('phone_number')
-                country_code = phone_data.get('country_code')
-                activation_id = phone_data.get('activation_id')
-                country_name = phone_data.get('country_name')
+            # Verificar se a tela de verificação de telefone está presente
+            if phone_verify._check_phone_screen():
+                logger.info("📞 Tela de verificação de telefone detectada.")
+                # Se temos parâmetros de telefone para reutilização
+                if phone_params and isinstance(phone_params, dict) and phone_params.get('reuse_number'):
+                    logger.info(
+                        f"♻️ Configurando reutilização de número: {phone_params.get('phone_number')}")
+                    phone_verify.reuse_number = True
+                    phone_verify.predefined_number = phone_params.get(
+                        'phone_number')
+                    phone_verify.predefined_activation_id = phone_params.get(
+                        'activation_id')
+                    phone_verify.predefined_country_code = phone_params.get(
+                        'country_code')
+
+                # Esta chamada inclui todo o processo de verificação por SMS
+                phone_verification_success = phone_verify.handle_verification()
+
+                if not phone_verification_success:
+                    raise GmailCreationError(
+                        "❌ Falha na verificação de telefone.")
+
+                # Captura os dados do telefone verificado
+                phone_data = phone_verify.get_current_phone_data()
+                if not phone_data:
+                    logger.error(
+                        "❌ Falha ao obter dados do telefone após verificação")
+                    raise GmailCreationError(
+                        "Dados do telefone não disponíveis após verificação")
             else:
-                logger.error(
-                    "❌ Falha ao obter dados do telefone após verificação")
-                raise GmailCreationError(
-                    "Dados do telefone não disponíveis após verificação")
+                logger.info(
+                    "📞 Tela de verificação de telefone não detectada, pulando para aceitação dos termos.")
+                # Se não houver verificação de telefone, definimos valores padrão
+                phone_data = {
+                    'phone_number': phone_params.get('phone_number') if phone_params else None,
+                    'country_code': phone_params.get('country_code') if phone_params else None,
+                    'activation_id': phone_params.get('activation_id') if phone_params else None,
+                    'country_name': "unknown"
+                }
+                phone_verification_success = True
+
+            # Extrair dados do telefone
+            phone_number = phone_data.get('phone_number')
+            country_code = phone_data.get('country_code')
+            activation_id = phone_data.get('activation_id')
+            country_name = phone_data.get('country_name')
+
+            # **Novo Passo: Pular a tela de recuperação de email**
+            terms_handler = TermsHandler(self.driver)
+            if not terms_handler._skip_recovery_email():
+                logger.warning(
+                    "⚠️ Não foi possível pular a tela de recuperação de email, mas continuando...")
 
             # Passo 3: Aceitação dos Termos
             self.state = GmailCreationState.TERMS_ACCEPTANCE
-            terms_handler = TermsHandler(self.driver)
             if not terms_handler.handle_terms_acceptance():
                 raise GmailCreationError("❌ Falha na aceitação dos termos.")
 

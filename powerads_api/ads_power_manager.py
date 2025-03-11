@@ -131,17 +131,6 @@ class AdsPowerManager:
         current_time = time.time()
         cache_time = 15 * 60  # 15 minutos
 
-        # Verificar se a API está disponível
-        if not self.check_api_health():
-            # Se não estiver disponível, usar cache mesmo que antigo
-            if self.cache["profiles"]:
-                logger.warning(
-                    "⚠️ Usando cache de perfis pois API não está disponível")
-                return list(self.cache["profiles"].values())
-            else:
-                logger.error("❌ API não disponível e não há cache de perfis")
-                return []
-
         # Usar cache se não precisa atualizar
         if not force_refresh and (current_time - self.cache["last_updated"]) < cache_time:
             return list(self.cache["profiles"].values())
@@ -158,14 +147,17 @@ class AdsPowerManager:
                     params={"page": page, "page_size": page_size},
                     timeout=15
                 )
-                response.raise_for_status()
+                response.raise_for_status()  # Levanta um erro se a resposta não for 200
                 data = response.json()
+
+                # Adicione um log para verificar a resposta
+                logger.info(f"Resposta da API: {data}")
 
                 if "data" in data and "list" in data["data"]:
                     profiles = data["data"]["list"]
                     all_profiles.extend(profiles)
 
-                    # Atualizar cache com perfis
+                    # Atualizar cache
                     for profile in profiles:
                         self.cache["profiles"][profile["user_id"]] = profile
 
@@ -174,6 +166,8 @@ class AdsPowerManager:
                         break  # Última página
                     page += 1
                 else:
+                    logger.warning(
+                        "⚠️ Nenhum perfil encontrado na resposta da API.")
                     break
 
             except Exception as e:
@@ -326,7 +320,6 @@ class AdsPowerManager:
 
         Returns:
             bool: True se o navegador foi parado com sucesso, False caso contrário
-        """
         try:
             url_stop = f"{self.base_url}/api/v1/browser/stop?user_id={user_id}"
             response = requests.get(url_stop, headers=self.headers, timeout=10)
@@ -350,6 +343,8 @@ class AdsPowerManager:
             logger.error(
                 f"❌ Erro ao parar navegador para perfil {user_id}: {str(e)}")
             return False
+        """
+
 
     def get_browser_info(self, user_id: str) -> Optional[Dict]:
         """

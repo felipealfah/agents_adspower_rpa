@@ -62,6 +62,10 @@ class PhoneVerification:
         self.state = VerificationState.INITIAL
         self._available_numbers = {}
         self.phone_number = None
+        self.phone_manager = None  # Inicialize o gerenciador de números
+        self.predefined_number = None
+        self.predefined_country_code = None
+        self.predefined_activation_id = None
 
     def handle_verification(self) -> bool:
         """Processo principal de verificação de telefone com tratamento robusto de erro."""
@@ -123,7 +127,9 @@ class PhoneVerification:
 
         except Exception as e:
             logger.error(f"❌ Erro geral na verificação de telefone: {str(e)}")
-            self._cancel_number()
+            # Não cancelar o número aqui se a verificação foi bem-sucedida
+            if self.state != VerificationState.COMPLETED:
+                self._cancel_current_number()
             return False
         finally:
             self._ensure_final_cleanup()
@@ -331,6 +337,12 @@ class PhoneVerification:
         """Cancela o número atual e adiciona o país à lista de rejeitados."""
         if self.current_activation:
             try:
+                # Se a verificação foi concluída com sucesso, não cancela o número
+                if self.state == VerificationState.COMPLETED:
+                    logger.info(
+                        "✅ Verificação concluída com sucesso, não cancelando o número.")
+                    return
+
                 logger.warning(
                     f"⚠️ Tentando cancelar número {self.current_activation.phone_number}...")
 
@@ -912,6 +924,24 @@ class PhoneVerification:
 
                 self.state = VerificationState.COMPLETED
                 logger.info("✅ Verificação de telefone concluída com sucesso!")
+
+                # Armazenar o número após a verificação bem-sucedida
+                try:
+                    if self.phone_manager is not None:
+                        self.phone_manager.add_number(
+                            phone_number=self.phone_number,
+                            country_code=self.current_activation.country_code,
+                            activation_id=self.current_activation.activation_id,
+                            service="gmail"  # ou outro serviço relevante
+                        )
+                        logger.info(
+                            f"✅ Número {self.phone_number} armazenado para reutilização.")
+                    else:
+                        logger.warning(
+                            "⚠️ phone_manager não está inicializado, não foi possível armazenar o número.")
+                except Exception as e:
+                    logger.warning(
+                        f"⚠️ Erro ao armazenar o número, mas continuando: {e}")
 
                 return True
 
