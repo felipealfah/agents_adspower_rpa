@@ -24,14 +24,15 @@ logging.basicConfig(
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Importações
-from apis.sms_api import SMSAPI
-from powerads_api.ads_power_manager import AdsPowerManager
-from apis.phone_manager import PhoneManager
-from credentials.credentials_manager import load_credentials, add_or_update_api_key, delete_api_key, get_credential
-from powerads_api.browser_manager import start_browser, stop_browser, get_active_browser_info, connect_selenium
-from powerads_api.profiles import get_profiles
-from automations.data_generator import generate_gmail_credentials
+from powerads_api.browser_manager import BrowserConfig
 from automations.gmail_creator.core import GmailCreator
+from automations.data_generator import generate_gmail_credentials
+from powerads_api.profiles import get_profiles
+from powerads_api.browser_manager import start_browser, stop_browser, get_active_browser_info, connect_selenium
+from credentials.credentials_manager import load_credentials, add_or_update_api_key, delete_api_key, get_credential
+from apis.phone_manager import PhoneManager
+from powerads_api.ads_power_manager import AdsPowerManager
+from apis.sms_api import SMSAPI
 
 # Caminho para salvar credenciais do Gmail
 CREDENTIALS_PATH = "credentials/gmail.json"
@@ -348,7 +349,7 @@ elif st.session_state.current_page == "📩 Automação Gmail":
 
     # Botão para recarregar perfis
     col1, col2 = st.columns([3, 1])
-    with col2:
+    with col1:
         if st.button("🔄 Recarregar Perfis"):
             logging.info("Recarregando perfis manualmente")
             profile_options = reload_profiles()
@@ -356,26 +357,10 @@ elif st.session_state.current_page == "📩 Automação Gmail":
 
     try:
         if adspower_manager:
-            # Verificar saúde da API
-            if adspower_manager.check_api_health():
-                # Usar perfis em cache se disponíveis e recentes
-                if st.session_state.profiles and time.time() - st.session_state.last_reload < 300:  # 5 minutos
-                    profile_options = st.session_state.profiles
-                    logging.info(
-                        f"Usando {len(profile_options)} perfis em cache")
-                else:
-                    profiles_list = adspower_manager.get_all_profiles()
-                    profile_options = {p["user_id"]: p["name"]
-                                       for p in profiles_list}
-                    st.session_state.profiles = profile_options
-                    st.session_state.last_reload = time.time()
-                    logging.info(
-                        f"Carregados {len(profiles_list)} perfis do AdsPower")
-            else:
-                st.warning(
-                    "⚠️ AdsPower API não está respondendo corretamente. Verifique a conexão.")
-                logging.warning(
-                    "AdsPower API não está respondendo corretamente")
+            profiles = adspower_manager.get_all_profiles()
+            if profiles:
+                profile_options = {p['name']: p['user_id'] for p in profiles}
+                logging.info(f"Carregados {len(profiles)} perfis do AdsPower")
         else:
             # Fallback para o método antigo
             profiles_list = get_profiles(
@@ -417,12 +402,37 @@ elif st.session_state.current_page == "📩 Automação Gmail":
 
     # UI para criação de contas
     if profile_options:
-        # Seleção do perfil
-        selected_profile = st.selectbox(
-            "Selecione um perfil:",
-            options=list(profile_options.keys()),
-            format_func=lambda x: profile_options[x]
-        )
+        
+        # Configurações do navegador
+        st.subheader("⚙️ Configurações do Navegador")
+        browser_col1, browser_col2 = st.columns(2)
+
+        with browser_col1:
+            headless_mode = st.checkbox("🕶️ Modo Headless (navegador invisível)",
+                                      help="Execute o navegador em segundo plano, sem interface gráfica")
+            
+            browser_wait_time = st.number_input("⏱️ Tempo máximo de espera (segundos)",
+                                              min_value=10,
+                                              max_value=120,
+                                              value=30)
+
+        with browser_col2:
+            st.write("")
+
+        # Seleção de perfil
+        browser_col1, browser_col2 = st.columns(2)
+        with browser_col1:
+            st.subheader("🎭 Selecione o Perfil")
+
+            selected_profile = st.selectbox(
+                "",
+                options=list(profile_options.keys()),
+                key="profile_selector"
+            )
+        
+        with browser_col2:
+            st.write("")
+
 
         # Opção para reutilizar número de telefone
         use_existing_number = False
@@ -462,7 +472,16 @@ elif st.session_state.current_page == "📩 Automação Gmail":
             if adspower_manager:
                 with status:
                     st.write("Iniciando navegador AdsPower...")
-                    logging.info("Iniciando navegador AdsPower")
+                    logging.info(
+                        f"Iniciando navegador AdsPower (Headless: {headless_mode})")
+
+                    # Configurar o navegador com as opções selecionadas
+                    browser_config = BrowserConfig(
+                        headless=headless_mode,
+                        max_wait_time=browser_wait_time
+                    )
+                    adspower_manager.browser_manager.set_config(browser_config)
+
                     start_success, browser_info = adspower_manager.start_browser(
                         selected_profile)
 
@@ -570,8 +589,8 @@ elif st.session_state.current_page == "📩 Automação Gmail":
 
                 # Mostrar informações mais completas sobre a conta criada
                 st.write(f"""
-                📧 **Email:** {account_data['email']}  
-                📱 **Telefone:** {account_data['phone']} ({account_data.get('country_name', 'Desconhecido')})  
+                📧 **Email:** {account_data['email']}
+                📱 **Telefone:** {account_data['phone']} ({account_data.get('country_name', 'Desconhecido')})
                 👤 **Nome:** {account_data.get('first_name', '')} {account_data.get('last_name', '')}
                 """)
 
@@ -858,4 +877,3 @@ elif st.session_state.current_page == "📱 Gerenciar Números":
                         st.error(f"❌ Erro ao remover número: {str(e)}")
                         logging.error(
                             f"Erro ao remover número {phone}: {str(e)}")
-

@@ -253,12 +253,13 @@ class AdsPowerManager:
                 f"❌ Erro ao verificar status do navegador para {user_id}: {str(e)}")
             return False
 
-    def start_browser(self, user_id: str, max_wait_time: int = 30) -> Tuple[bool, Optional[Dict]]:
+    def start_browser(self, user_id: str, headless: bool = False, max_wait_time: int = 30) -> Tuple[bool, Optional[Dict]]:
         """
         Inicia o navegador para um perfil e aguarda até estar pronto.
 
         Args:
             user_id: ID do perfil
+            headless: Se True, inicia o navegador em modo headless
             max_wait_time: Tempo máximo de espera em segundos
 
         Returns:
@@ -273,7 +274,8 @@ class AdsPowerManager:
 
         # Iniciar navegador
         try:
-            url_start = f"{self.base_url}/api/v1/browser/start?user_id={user_id}"
+            # Adicionar parâmetro headless na URL
+            url_start = f"{self.base_url}/api/v1/browser/start?user_id={user_id}&headless={str(headless).lower()}"
             response = requests.get(
                 url_start, headers=self.headers, timeout=15)
 
@@ -287,7 +289,8 @@ class AdsPowerManager:
                 logger.error(f"❌ Erro ao iniciar navegador: {data.get('msg')}")
                 return False, None
 
-            logger.info(f"🚀 Iniciando navegador para perfil {user_id}")
+            logger.info(
+                f"🚀 Iniciando navegador para perfil {user_id} {'(headless)' if headless else ''}")
 
             # Aguardar até o navegador estar pronto
             start_time = time.time()
@@ -344,7 +347,6 @@ class AdsPowerManager:
                 f"❌ Erro ao parar navegador para perfil {user_id}: {str(e)}")
             return False
         """
-
 
     def get_browser_info(self, user_id: str) -> Optional[Dict]:
         """

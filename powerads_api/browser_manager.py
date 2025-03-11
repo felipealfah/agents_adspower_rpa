@@ -3,6 +3,109 @@ import time
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+from dataclasses import dataclass
+from typing import Optional, Dict, Tuple
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class BrowserConfig:
+    """Configurações do navegador."""
+    headless: bool = False  # Por padrão, não usar modo headless
+    max_wait_time: int = 30  # Tempo máximo de espera em segundos
+    user_agent: Optional[str] = None  # User agent personalizado (opcional)
+    proxy: Optional[Dict] = None  # Configurações de proxy (opcional)
+
+
+class BrowserManager:
+    """Gerencia as configurações e estados do navegador."""
+
+    def __init__(self, ads_power_api):
+        self.ads_power_api = ads_power_api
+        self.browser_config = BrowserConfig()
+        self.current_browser_info = None
+
+    def set_config(self, config: BrowserConfig) -> None:
+        """
+        Define as configurações do navegador.
+
+        Args:
+            config: Instância de BrowserConfig com as configurações desejadas
+        """
+        self.browser_config = config
+        logger.info(f"✅ Configurações do navegador atualizadas: {config}")
+
+    def start_browser(self, user_id: str) -> Tuple[bool, Optional[Dict]]:
+        """
+        Inicia o navegador com as configurações definidas.
+
+        Args:
+            user_id: ID do perfil do AdsPower
+
+        Returns:
+            Tuple[bool, Optional[Dict]]: (Sucesso, Informações do navegador)
+        """
+        try:
+            # Usar as configurações definidas
+            success, browser_info = self.ads_power_api.start_browser(
+                user_id=user_id,
+                headless=self.browser_config.headless,
+                max_wait_time=self.browser_config.max_wait_time
+            )
+
+            if success:
+                self.current_browser_info = browser_info
+                logger.info(
+                    f"✅ Navegador iniciado com sucesso: {'(headless)' if self.browser_config.headless else '(normal)'}")
+            else:
+                logger.error("❌ Falha ao iniciar o navegador")
+
+            return success, browser_info
+
+        except Exception as e:
+            logger.error(f"❌ Erro ao iniciar o navegador: {str(e)}")
+            return False, None
+
+    def close_browser(self, user_id: str) -> bool:
+        """
+        Fecha o navegador.
+
+        Args:
+            user_id: ID do perfil do AdsPower
+
+        Returns:
+            bool: True se o navegador foi fechado com sucesso
+        """
+        try:
+            success = self.ads_power_api.close_browser(user_id)
+            if success:
+                self.current_browser_info = None
+                logger.info("✅ Navegador fechado com sucesso")
+            return success
+        except Exception as e:
+            logger.error(f"❌ Erro ao fechar o navegador: {str(e)}")
+            return False
+
+    def get_current_browser_info(self) -> Optional[Dict]:
+        """
+        Retorna as informações do navegador atual.
+
+        Returns:
+            Optional[Dict]: Informações do navegador ou None se não estiver em execução
+        """
+        return self.current_browser_info
+
+    def is_browser_running(self) -> bool:
+        """
+        Verifica se o navegador está em execução.
+
+        Returns:
+            bool: True se o navegador estiver em execução
+        """
+        return self.current_browser_info is not None
+
 
 def start_browser(base_url, headers, user_id):
     """
@@ -21,7 +124,8 @@ def start_browser(base_url, headers, user_id):
     response = requests.get(url_start, headers=headers)
 
     if response.status_code != 200:
-        print(f"❌ Erro ao iniciar o navegador: {response.status_code} - {response.text}")
+        print(
+            f"❌ Erro ao iniciar o navegador: {response.status_code} - {response.text}")
         return None
 
     try:
@@ -33,7 +137,8 @@ def start_browser(base_url, headers, user_id):
         print(f"❌ Erro ao converter resposta em JSON: {response.text}")
         return None
 
-    print(f"🚀 Navegador iniciado para o perfil {user_id}. Aguardando WebDriver...")
+    print(
+        f"🚀 Navegador iniciado para o perfil {user_id}. Aguardando WebDriver...")
 
     # 2️⃣ Aguardar até 15 segundos para obter WebSocket Selenium
     for tentativa in range(15):
@@ -43,11 +148,13 @@ def start_browser(base_url, headers, user_id):
         browser_info = get_active_browser_info(base_url, headers, user_id)
 
         if browser_info["status"] == "success" and browser_info["selenium_ws"]:
-            print(f"✅ WebSocket Selenium obtido: {browser_info['selenium_ws']}")
+            print(
+                f"✅ WebSocket Selenium obtido: {browser_info['selenium_ws']}")
             print(f"✅ Caminho do WebDriver: {browser_info['webdriver_path']}")
             return browser_info  # Retorna WebSocket Selenium e caminho do WebDriver
 
-        print(f"⚠️ Tentativa {tentativa + 1}: WebDriver ainda não disponível...")
+        print(
+            f"⚠️ Tentativa {tentativa + 1}: WebDriver ainda não disponível...")
 
     print("❌ Não foi possível obter o WebSocket do Selenium.")
     return None
@@ -64,7 +171,7 @@ def stop_browser(base_url, headers, user_id):
 
     Returns:
         bool: True se o navegador foi fechado com sucesso, False caso contrário.
-    
+
     url_stop = f"{base_url}/api/v1/browser/stop?user_id={user_id}"
     response = requests.get(url_stop, headers=headers)
 
@@ -84,6 +191,7 @@ def stop_browser(base_url, headers, user_id):
     print(f"✅ Navegador do perfil {user_id} fechado com sucesso!")
     return True
     """
+
 
 def get_active_browser_info(base_url, headers, user_id):
     """
@@ -121,6 +229,7 @@ def get_active_browser_info(base_url, headers, user_id):
             }
 
     return {"status": "error", "message": "Nenhum navegador ativo encontrado para este perfil."}
+
 
 def connect_selenium(selenium_ws, webdriver_path):
     """
