@@ -1,6 +1,9 @@
 from .api_handler import make_request
 import json
 import requests
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Estruturas de Fingerprint
 FINGERPRINTS = {
@@ -25,6 +28,7 @@ FINGERPRINTS = {
         "timezone": "UTC",
     },
 }
+
 
 def create_profile_with_fingerprint(base_url, headers, name, fingerprint_choice, group_id, proxy_config=None):
     """
@@ -57,11 +61,14 @@ def create_profile_with_fingerprint(base_url, headers, name, fingerprint_choice,
         }
 
     # Validar se proxy_config contém os campos obrigatórios
-    required_fields = ["proxy_type", "proxy_host", "proxy_port", "proxy_user", "proxy_password", "proxy_soft"]
-    missing_fields = [field for field in required_fields if field not in proxy_config]
+    required_fields = ["proxy_type", "proxy_host", "proxy_port",
+                       "proxy_user", "proxy_password", "proxy_soft"]
+    missing_fields = [
+        field for field in required_fields if field not in proxy_config]
 
     if missing_fields:
-        raise ValueError(f"Faltando campos obrigatórios no proxy_config: {missing_fields}")
+        raise ValueError(
+            f"Faltando campos obrigatórios no proxy_config: {missing_fields}")
 
     # Construir user_proxy_config corretamente
     proxy_data = {
@@ -97,6 +104,7 @@ def create_profile_with_fingerprint(base_url, headers, name, fingerprint_choice,
 
     return response
 
+
 def list_groups(base_url, headers, page=1, page_size=10):
     """
     Lista todos os grupos disponíveis no AdsPower.
@@ -114,7 +122,8 @@ def list_groups(base_url, headers, page=1, page_size=10):
         ValueError: Se a resposta da API contiver erros ou não puder ser processada.
     """
     url = f"{base_url}/api/v1/group/list"
-    params = {"page": page, "page_size": page_size}  # Parâmetros opcionais de consulta
+    # Parâmetros opcionais de consulta
+    params = {"page": page, "page_size": page_size}
 
     # Fazer a requisição GET
     response = make_request("GET", url, headers, payload=params)
@@ -126,46 +135,53 @@ def list_groups(base_url, headers, page=1, page_size=10):
             return group_list  # Retornar a lista de grupos
         else:
             # Erro retornado pela API
-            raise ValueError(f"Erro ao listar grupos: {response.get('msg', 'Erro desconhecido')}")
+            raise ValueError(
+                f"Erro ao listar grupos: {response.get('msg', 'Erro desconhecido')}")
     else:
         raise ValueError("Resposta inválida ou não decodificável da API")
 
 
 def get_profiles(base_url, headers):
     """
-    Obtém a lista completa de perfis no AdsPower, percorrendo todas as páginas.
+    Obtém a lista completa de perfis ativos no AdsPower.
     """
-    all_profiles = []  # Lista para armazenar todos os perfis
-    page = 1
-    page_size = 10  # Ajuste conforme necessário (máximo permitido pela API)
+    all_profiles = []
+    try:
+        response = requests.get(
+            f"{base_url}/api/v1/user/list",
+            headers=headers,
+            params={"page": 1, "page_size": 100}
+        )
+        response.raise_for_status()
+        data = response.json()
 
-    while True:
-        try:
-            response = requests.get(
-                f"{base_url}/api/v1/user/list",
-                headers=headers,
-                params={"page": page, "page_size": page_size}
-            )
-            response.raise_for_status()
-            data = response.json()
+        if "data" in data and "list" in data["data"]:
+            profiles = data["data"]["list"]
+            # Filtrar apenas perfis ativos (com group_id diferente de '0' e group_name não vazio)
+            active_profiles = [
+                profile for profile in profiles
+                if profile.get('group_id') != '0' and profile.get('group_name')
+            ]
+            all_profiles.extend(active_profiles)
 
-            if "data" in data and "list" in data["data"]:
-                profiles = data["data"]["list"]
-                all_profiles.extend(profiles)
+            logging.info(f"Total de perfis encontrados: {len(profiles)}")
+            logging.info(f"Perfis ativos: {len(active_profiles)}")
 
-                # Verifica se ainda há mais páginas a serem carregadas
-                if len(profiles) < page_size:
-                    break  # Se a quantidade retornada for menor que page_size, então é a última página
-                page += 1  # Incrementa a página para buscar a próxima
+            # Log detalhado dos perfis inativos para debug
+            inactive_profiles = [
+                profile for profile in profiles
+                if profile.get('group_id') == '0' or not profile.get('group_name')
+            ]
+            if inactive_profiles:
+                logging.info("Perfis inativos encontrados:")
+                for profile in inactive_profiles:
+                    logging.info(f"Nome: {profile.get('name')}, ID: {profile.get('user_id')}, "
+                                 f"Group ID: {profile.get('group_id')}, Group Name: {profile.get('group_name')}")
 
-            else:
-                break  # Encerra se a resposta não contiver a estrutura esperada
+    except requests.exceptions.RequestException as e:
+        logging.error(f"❌ Erro ao buscar perfis: {e}")
 
-        except requests.exceptions.RequestException as e:
-            print(f"❌ Erro ao buscar perfis: {e}")
-            break
-
-    return all_profiles  # Retorna a lista completa de perfis
+    return all_profiles
 
 
 def create_group(base_url, headers, group_name):
@@ -184,6 +200,7 @@ def create_group(base_url, headers, group_name):
     payload = {"group_name": group_name}
     return make_request("POST", url, headers, payload)
 
+
 def check_profile_status(base_url, headers, user_id):
     """
     Verifica se um perfil está ativo no AdsPower.
@@ -198,6 +215,7 @@ def check_profile_status(base_url, headers, user_id):
     """
     url = f"{base_url}/api/v1/browser/active?user_id={user_id}"
     return make_request("GET", url, headers)
+
 
 def delete_profile(base_url, headers, user_id):
     """
@@ -215,6 +233,7 @@ def delete_profile(base_url, headers, user_id):
     payload = {"user_ids": [user_id]}
     return make_request("POST", url, headers, payload)
 
+
 def delete_profile_cache(base_url, headers, user_id):
     """
     Deleta o cache de um perfil no AdsPower.
@@ -230,6 +249,7 @@ def delete_profile_cache(base_url, headers, user_id):
     url = f"{base_url}/api/v1/user/delete-cache"
     payload = {"user_id": user_id}
     return make_request("POST", url, headers, payload)
+
 
 def list_groups(base_url, headers, page=1, page_size=15):
     """
@@ -247,6 +267,7 @@ def list_groups(base_url, headers, page=1, page_size=15):
     url = f"{base_url}/api/v1/group/list?page={page}&page_size={page_size}"
     return make_request("GET", url, headers)
 
+
 def update_profile(base_url, headers, user_id, update_data):
     """
     Atualiza informações de um perfil no AdsPower.
@@ -263,3 +284,86 @@ def update_profile(base_url, headers, user_id, update_data):
     url = f"{base_url}/api/v1/user/update"
     update_data["user_id"] = user_id  # Adiciona o user_id ao payload
     return make_request("POST", url, headers, update_data)
+
+
+class ProfileManager:
+    def __init__(self, cache):
+        self.cache = cache
+
+        # Obter as credenciais necessárias do cache ou de outra fonte
+        from credentials.credentials_manager import get_credential
+
+        # Definir base_url e headers
+        self.base_url = get_credential(
+            "PA_BASE_URL") or "http://local.adspower.net:50325"
+        api_key = get_credential("PA_API_KEY")
+
+        self.headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        } if api_key else {}
+
+        logging.info(
+            f"ProfileManager inicializado com base_url: {self.base_url}")
+
+    def get_all_profiles(self, force_refresh=False):
+        """
+        Obtém todos os perfis ativos da API.
+        """
+        try:
+            logging.info(
+                f"Obtendo perfis do AdsPower usando base_url: {self.base_url}")
+
+            response = requests.get(
+                f"{self.base_url}/api/v1/user/list",
+                headers=self.headers,
+                params={"page": 1, "page_size": 100}
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logging.info(f"Resposta da API: {data}")
+
+            if data.get("code") == 0 and "data" in data and "list" in data["data"]:
+                # Filtrar apenas perfis ativos
+                active_profiles = [
+                    profile for profile in data["data"]["list"]
+                    if profile.get('group_id') != '0' and profile.get('group_name')
+                ]
+                logging.info(
+                    f"Perfis ativos encontrados: {len(active_profiles)}")
+                return active_profiles
+            else:
+                logging.warning(f"Resposta da API não contém perfis: {data}")
+                return []
+        except Exception as e:
+            logging.error(f"Erro ao obter perfis: {e}")
+            return []
+
+    def find_deleted_profiles(self):
+        """
+        Compara os perfis armazenados no cache com os retornados pela API
+        para identificar quais perfis foram apagados.
+        """
+        # Buscar os perfis ativos mais recentes da API
+        active_profiles = self.get_all_profiles(force_refresh=True)
+        active_ids = {profile["user_id"] for profile in active_profiles}
+
+        # Obter perfis do cache
+        cached_ids = set(self.cache["profiles"].keys())
+
+        # Perfis deletados = aqueles que estavam no cache mas não aparecem mais na API
+        deleted_profiles = cached_ids - active_ids
+
+        if deleted_profiles:
+            logger.info(f"Perfis deletados detectados: {deleted_profiles}")
+            # Log detalhado dos perfis deletados
+            for profile_id in deleted_profiles:
+                if profile_id in self.cache["profiles"]:
+                    profile_info = self.cache["profiles"][profile_id]
+                    logger.info(f"Perfil deletado: Nome: {profile_info.get('name')}, "
+                                f"ID: {profile_id}")
+        else:
+            logger.info("Nenhum perfil deletado identificado.")
+
+        return deleted_profiles

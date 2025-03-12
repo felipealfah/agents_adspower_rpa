@@ -26,6 +26,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 # Importações
 from powerads_api.browser_manager import BrowserConfig
 from automations.gmail_creator.core import GmailCreator
+from automations.tiktok_creator_m1.core import TikTokCreator
 from automations.data_generator import generate_gmail_credentials
 from powerads_api.profiles import get_profiles
 from powerads_api.browser_manager import start_browser, stop_browser, get_active_browser_info, connect_selenium
@@ -33,13 +34,15 @@ from credentials.credentials_manager import load_credentials, add_or_update_api_
 from apis.phone_manager import PhoneManager
 from powerads_api.ads_power_manager import AdsPowerManager
 from apis.sms_api import SMSAPI
+from powerads_api.profiles import ProfileManager
 
 # Caminho para salvar credenciais do Gmail
 CREDENTIALS_PATH = "credentials/gmail.json"
 
 # Inicializar estado da sessão para rastrear atualizações de credenciais
-if 'last_credentials_update' not in st.session_state:
-    st.session_state.last_credentials_update = time.time()
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = "🔑 Gerenciar Credenciais"  # Inicializa a página atual
+
 
 # Ativar recarregamento amplo na sessão para componentes gerenciados
 if 'initialized' not in st.session_state:
@@ -94,20 +97,30 @@ def reload_profiles():
     """Recarrega a lista de perfis do AdsPower."""
     logging.info("Recarregando perfis do AdsPower")
     try:
-        if adspower_manager:
-            profiles_list = adspower_manager.get_all_profiles(
-                force_refresh=True)
-            if profiles_list:
-                # Atualizar o estado da sessão
-                st.session_state.profiles = {
-                    p["user_id"]: p["name"] for p in profiles_list}
-                st.session_state.last_reload = time.time()
-                return st.session_state.profiles
-            else:
-                logging.warning("Nenhum perfil encontrado no AdsPower")
-                return {}
+        # Criar instância do ProfileManager
+        profile_manager = ProfileManager(st.session_state)
+
+        # Obter perfis ativos
+        active_profiles = profile_manager.get_all_profiles(force_refresh=True)
+
+        if active_profiles:
+            # Atualizar o estado da sessão
+            st.session_state.profiles = {
+                p["name"]: p["user_id"] for p in active_profiles}
+            st.session_state.last_reload = time.time()
+
+            # Verificar perfis deletados
+            deleted_profiles = profile_manager.find_deleted_profiles()
+            if deleted_profiles:
+                logging.warning(
+                    f"Perfis deletados encontrados: {deleted_profiles}")
+                st.warning(
+                    f"⚠️ {len(deleted_profiles)} perfis foram removidos do AdsPower")
+
+            logging.info(f"Total de perfis ativos: {len(active_profiles)}")
+            return st.session_state.profiles
         else:
-            logging.warning("Gerenciador AdsPower não inicializado")
+            logging.warning("Nenhum perfil ativo encontrado no AdsPower")
             return {}
     except Exception as e:
         logging.error(f"Erro ao recarregar perfis: {str(e)}")
@@ -170,16 +183,18 @@ def clear_all_accounts():
 # Criar menu lateral no Streamlit
 st.sidebar.title("🔧 Menu de Navegação")
 
-# Definir a página atual se não estiver no estado da sessão
-if 'current_page' not in st.session_state:
-    st.session_state.current_page = "🔑 Gerenciar Credenciais"
-
-# Criar links de navegação em vez de radio buttons
-if st.sidebar.button("🔑 Gerenciar Credenciais"):
-    st.session_state.current_page = "🔑 Gerenciar Credenciais"
-
+# Seção de Automações
+st.sidebar.subheader("Automações")
 if st.sidebar.button("📩 Automação Gmail"):
     st.session_state.current_page = "📩 Automação Gmail"
+
+if st.sidebar.button("🚀 Automação TikTok"):
+    st.session_state.current_page = "Auto Tiktok M1"
+
+# Seção de Administração
+st.sidebar.subheader("Adm")
+if st.sidebar.button("🔑 Gerenciar Credenciais"):
+    st.session_state.current_page = "🔑 Gerenciar Credenciais"
 
 if st.sidebar.button("📜 Contas Criadas"):
     st.session_state.current_page = "📜 Contas Criadas"
@@ -357,23 +372,36 @@ elif st.session_state.current_page == "📩 Automação Gmail":
 
     try:
         if adspower_manager:
-            profiles = adspower_manager.get_all_profiles()
+            # Criar instância do ProfileManager
+            profile_manager = ProfileManager(st.session_state)
+
+            # Obter perfis ativos
+            profiles = profile_manager.get_all_profiles()
             if profiles:
                 profile_options = {p['name']: p['user_id'] for p in profiles}
-                logging.info(f"Carregados {len(profiles)} perfis do AdsPower")
+                logging.info(
+                    f"Carregados {len(profiles)} perfis ativos do AdsPower")
+
+                # Verificar perfis deletados
+                deleted_profiles = profile_manager.find_deleted_profiles()
+                if deleted_profiles:
+                    st.warning(
+                        f"⚠️ {len(deleted_profiles)} perfis foram removidos do AdsPower")
+            else:
+                profile_options = {}
         else:
             # Fallback para o método antigo
             profiles_list = get_profiles(
                 PA_BASE_URL, HEADERS) if HEADERS.get("Authorization") else []
-            profile_options = {p["user_id"]: p["name"]
-                               for p in profiles_list} if profiles_list else {}
+            profile_options = {p["name"]: p["user_id"]
+                for p in profiles_list} if profiles_list else {}
             logging.info(
                 f"Carregados {len(profiles_list)} perfis via método tradicional")
 
         if not profile_options:
             st.warning(
-                "⚠️ Nenhum perfil encontrado no AdsPower. Verifique suas credenciais.")
-            logging.warning("Nenhum perfil encontrado no AdsPower")
+                "⚠️ Nenhum perfil ativo encontrado no AdsPower. Verifique suas credenciais.")
+            logging.warning("Nenhum perfil ativo encontrado no AdsPower")
 
     except Exception as e:
         profile_options = {}
@@ -402,7 +430,7 @@ elif st.session_state.current_page == "📩 Automação Gmail":
 
     # UI para criação de contas
     if profile_options:
-        
+
         # Configurações do navegador
         st.subheader("⚙️ Configurações do Navegador")
         browser_col1, browser_col2 = st.columns(2)
@@ -410,7 +438,7 @@ elif st.session_state.current_page == "📩 Automação Gmail":
         with browser_col1:
             headless_mode = st.checkbox("🕶️ Modo Headless (navegador invisível)",
                                       help="Execute o navegador em segundo plano, sem interface gráfica")
-            
+
             browser_wait_time = st.number_input("⏱️ Tempo máximo de espera (segundos)",
                                               min_value=10,
                                               max_value=120,
@@ -429,10 +457,9 @@ elif st.session_state.current_page == "📩 Automação Gmail":
                 options=list(profile_options.keys()),
                 key="profile_selector"
             )
-        
+
         with browser_col2:
             st.write("")
-
 
         # Opção para reutilizar número de telefone
         use_existing_number = False
@@ -794,7 +821,7 @@ elif st.session_state.current_page == "📱 Gerenciar Números":
         logging.info("Nenhum número de telefone disponível para gerenciamento")
     else:
         # Mostrar estatísticas básicas
-        st.subheader("📊 Estatísticas de Números")
+        st.subheader("�� Estatísticas de Números")
         stats = phone_manager.get_stats()
         logging.info(f"Estatísticas de números: {stats}")
 
@@ -825,29 +852,29 @@ elif st.session_state.current_page == "📱 Gerenciar Números":
 
         # Mostrar os números disponíveis
         for i, número in enumerate(filtered_numbers):
-            phone = número.get("phone_number", "N/A")
-            country = número.get("country_code", "N/A")
-            first_used = datetime.fromtimestamp(número.get("first_used", 0))
-            last_used = datetime.fromtimestamp(número.get("last_used", 0))
-            services = número.get("services", [])
-            times_used = número.get("times_used", 0)
+            phone= número.get("phone_number", "N/A")
+            country= número.get("country_code", "N/A")
+            first_used= datetime.fromtimestamp(número.get("first_used", 0))
+            last_used= datetime.fromtimestamp(número.get("last_used", 0))
+            services= número.get("services", [])
+            times_used= número.get("times_used", 0)
 
             # Verificar se o número ainda está ativo
-            now = time.time()
-            time_since_first_use = now - número.get("first_used", 0)
-            is_active = time_since_first_use < phone_manager.reuse_window
+            now= time.time()
+            time_since_first_use= now - número.get("first_used", 0)
+            is_active= time_since_first_use < phone_manager.reuse_window
 
             # Calcular tempo restante se estiver ativo
-            time_left = ""
+            time_left= ""
             if is_active:
-                remaining_seconds = phone_manager.reuse_window - time_since_first_use
-                minutes = int(remaining_seconds // 60)
-                seconds = int(remaining_seconds % 60)
-                time_left = f"{minutes}m {seconds}s"
+                remaining_seconds= phone_manager.reuse_window - time_since_first_use
+                minutes= int(remaining_seconds // 60)
+                seconds= int(remaining_seconds % 60)
+                time_left= f"{minutes}m {seconds}s"
 
             # Criar um card para o número
-            status_color = "green" if is_active else "gray"
-            status_text = "Ativo" if is_active else "Expirado"
+            status_color= "green" if is_active else "gray"
+            status_text= "Ativo" if is_active else "Expirado"
 
             with st.expander(f"☎️ {phone} - {status_text} {'(' + time_left + ')' if time_left else ''}"):
                 st.markdown(f"""
@@ -877,3 +904,98 @@ elif st.session_state.current_page == "📱 Gerenciar Números":
                         st.error(f"❌ Erro ao remover número: {str(e)}")
                         logging.error(
                             f"Erro ao remover número {phone}: {str(e)}")
+
+# Adicionar a nova aba "Auto Tiktok M1"
+elif st.session_state.current_page == "Auto Tiktok M1":
+    st.title("🚀 Automação TikTok M1")
+    logging.info("Acessando aba de Automação TikTok M1")
+
+    # Listar perfis disponíveis no AdsPower
+    profile_options= {}
+
+    # Botão para recarregar perfis
+    col1, col2= st.columns([3, 1])
+    with col1:
+        if st.button("🔄 Recarregar Perfis"):
+            logging.info("Recarregando perfis manualmente")
+            profile_options= reload_profiles()
+            st.success("✅ Perfis recarregados com sucesso!")
+
+    try:
+        if adspower_manager:
+            # Criar instância do ProfileManager
+            profile_manager= ProfileManager(st.session_state)
+
+            # Obter perfis ativos
+            profiles= profile_manager.get_all_profiles()
+            if profiles:
+                profile_options= {p['name']: p['user_id'] for p in profiles}
+                logging.info(
+                    f"Carregados {len(profiles)} perfis ativos do AdsPower")
+
+                # Verificar perfis deletados
+                deleted_profiles= profile_manager.find_deleted_profiles()
+                if deleted_profiles:
+                    st.warning(
+                        f"⚠️ {len(deleted_profiles)} perfis foram removidos do AdsPower")
+            else:
+                profile_options= {}
+        else:
+            # Fallback para o método antigo
+            profiles_list= get_profiles(PA_BASE_URL, HEADERS) if HEADERS.get("Authorization") else []
+            profile_options= {p["name"]: p["user_id"] for p in profiles_list} if profiles_list else {}
+            logging.info(
+                f"Carregados {len(profiles_list)} perfis via método tradicional")
+
+        if not profile_options:
+            st.warning(
+                "⚠️ Nenhum perfil ativo encontrado no AdsPower. Verifique suas credenciais.")
+            logging.warning("Nenhum perfil ativo encontrado no AdsPower")
+
+    except Exception as e:
+        profile_options= {}
+        st.error(f"Erro ao carregar perfis: {e}")
+        logging.error(f"Erro ao carregar perfis: {e}")
+
+    # Dropdown para selecionar o perfil
+    st.subheader("🎭 Selecione o Perfil")
+    selected_profile_name= st.selectbox(
+        "Escolha um perfil:",
+        options = list(profile_options.keys()) if profile_options else ["Nenhum perfil disponível"],
+        key = "tiktok_profile_selector"
+    )
+
+    # Obter o ID do perfil selecionado
+    selected_profile_id= profile_options.get(selected_profile_name)
+
+    # Configurações do navegador
+    st.subheader("⚙️ Configurações do Navegador")
+    browser_col1, browser_col2= st.columns(2)
+
+    with browser_col1:
+        headless_mode= st.checkbox("🕶️ Modo Headless (navegador invisível)",
+                                    help ="Execute o navegador em segundo plano, sem interface gráfica")
+
+    with browser_col2:
+        browser_wait_time= st.number_input("⏱️ Tempo máximo de espera (segundos)",
+                                             min_value = 10,
+                                             max_value = 120,
+                                             value =30)
+
+    # Botão para iniciar a automação do TikTok
+    if st.button("🚀 Criar Conta TikTok"):
+        logging.info(
+            f"Iniciando criação de conta TikTok para perfil: {selected_profile_name} (ID: {selected_profile_id})")
+
+        # Aqui você deve implementar a lógica para iniciar a automação do TikTok
+        # Exemplo:
+        # tiktok_creator = TikTokCreator(driver, credentials_file, sms_api, selected_profile_id)
+        # sucesso, account_data = tiktok_creator.create_account()
+
+        # Exibir status
+        # if sucesso:
+        #     st.success("✅ Conta TikTok criada com sucesso!")
+        # else:
+        #     st.error("❌ Erro na criação da conta TikTok.")
+
+# ... código existente ...
